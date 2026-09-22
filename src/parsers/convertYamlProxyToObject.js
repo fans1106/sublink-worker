@@ -120,7 +120,10 @@ export function convertYamlProxyToObject(p) {
                 flow: p.flow ?? undefined,
                 udp: typeof p.udp !== 'undefined' ? !!p.udp : undefined,
                 packet_encoding: p['packet-encoding'],
-                alpn: toArray(p.alpn)
+                alpn: toArray(p.alpn),
+                'support-x25519mlkem768': typeof p['support-x25519mlkem768'] !== 'undefined'
+                    ? !!p['support-x25519mlkem768']
+                    : undefined
             };
         }
         case 'trojan': {

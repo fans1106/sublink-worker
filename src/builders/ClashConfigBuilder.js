@@ -214,6 +214,9 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
                     udp: getClashUdpValue(proxy),
                     ...(proxy.alpn ? { alpn: proxy.alpn } : {}),
                     ...(proxy.packet_encoding ? { 'packet-encoding': proxy.packet_encoding } : {}),
+                    ...(proxy['support-x25519mlkem768'] !== undefined
+                        ? { 'support-x25519mlkem768': proxy['support-x25519mlkem768'] }
+                        : {}),
                     'flow': proxy.flow ?? undefined,
                 };
             case 'hysteria2':

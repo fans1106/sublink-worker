@@ -129,6 +129,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
         // every group that selects this node — including DNS hijack and fakeip.
         delete sanitized.udp;
         delete sanitized.network;
+        delete sanitized['support-x25519mlkem768'];
 
         // Remove 'alpn' from root level - it should only exist inside 'tls' object for sing-box
         // For protocols like vless/vmess, alpn belongs inside the tls configuration
