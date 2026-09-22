@@ -19,6 +19,9 @@ export function parseVless(url) {
     const supportX25519Mlkem768 = parseBool(
         params['support-x25519mlkem768'] ?? params.support_x25519mlkem768
     );
+    if (tls.reality && supportX25519Mlkem768 !== undefined) {
+        tls.reality.support_x25519mlkem768 = supportX25519Mlkem768;
+    }
 
     return {
         type: 'vless',
@@ -30,9 +33,6 @@ export function parseVless(url) {
         tls,
         transport,
         flow: params.flow ?? undefined,
-        ...(udp !== undefined ? { udp } : {}),
-        ...(supportX25519Mlkem768 !== undefined
-            ? { 'support-x25519mlkem768': supportX25519Mlkem768 }
-            : {})
+        ...(udp !== undefined ? { udp } : {})
     };
 }

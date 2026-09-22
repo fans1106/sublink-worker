@@ -77,7 +77,16 @@ export function convertYamlProxyToObject(p) {
                     server_name: p.servername || p.sni,
                     insecure: !!p['skip-cert-verify'],
                     ...(reality
-                        ? { reality: { enabled: true, public_key: reality['public-key'], short_id: reality['short-id'] } }
+                        ? {
+                            reality: {
+                                enabled: true,
+                                public_key: reality['public-key'],
+                                short_id: reality['short-id'],
+                                support_x25519mlkem768: typeof reality['support-x25519mlkem768'] !== 'undefined'
+                                    ? !!reality['support-x25519mlkem768']
+                                    : undefined
+                            }
+                        }
                         : {})
                 }
                 : { enabled: false };
@@ -120,10 +129,7 @@ export function convertYamlProxyToObject(p) {
                 flow: p.flow ?? undefined,
                 udp: typeof p.udp !== 'undefined' ? !!p.udp : undefined,
                 packet_encoding: p['packet-encoding'],
-                alpn: toArray(p.alpn),
-                'support-x25519mlkem768': typeof p['support-x25519mlkem768'] !== 'undefined'
-                    ? !!p['support-x25519mlkem768']
-                    : undefined
+                alpn: toArray(p.alpn)
             };
         }
         case 'trojan': {
