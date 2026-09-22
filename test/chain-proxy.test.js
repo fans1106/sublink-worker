@@ -27,6 +27,19 @@ const chain = parseChainConfig(JSON.stringify({
     links: [{ entry: 'entry', exit: 'exit' }]
 }), input);
 
+const vlessInput = [
+    'vless://11111111-1111-1111-1111-111111111111@entry.example.com:443?encryption=none&security=tls&sni=entry.example.com#Entry%20VLESS',
+    'vless://22222222-2222-2222-2222-222222222222@exit.example.com:443?encryption=none&security=tls&sni=exit.example.com#Exit%20VLESS'
+].join('\n');
+const vlessChain = parseChainConfig({
+    version: 1,
+    sources: [
+        { id: 'entry', line: 0, label: 'Entry VLESS' },
+        { id: 'exit', line: 1, label: 'Exit VLESS' }
+    ],
+    links: [{ entry: 'entry', exit: 'exit' }]
+}, vlessInput);
+
 const subscription = (name, server) => `
 proxies:
   - name: ${name}
@@ -107,6 +120,24 @@ describe('subscription chain proxy', () => {
         expect(originalExit['dialer-proxy']).toBeUndefined();
         expect(chainGroup.proxies).toContain(chainedExit.name);
         expect(nodeSelect.proxies).toContain(chainGroup.name);
+    });
+
+    it('supports VLESS URI lines as chain sources', async () => {
+        const singbox = new SingboxConfigBuilder(
+            vlessInput, [], [], null, 'zh-CN', 'test-agent', false,
+            false, null, null, '1.12', true, vlessChain
+        );
+        await singbox.build();
+        const singboxExit = singbox.config.outbounds.find(outbound => outbound.tag === '[Entry VLESS → Exit VLESS] Exit VLESS');
+        expect(singboxExit.detour).toBe('🔗 IN · Entry VLESS');
+
+        const clashBuilder = new ClashConfigBuilder(
+            vlessInput, [], [], null, 'zh-CN', 'test-agent', false,
+            false, null, null, true, vlessChain
+        );
+        const clash = yaml.load(await clashBuilder.build());
+        const clashExit = clash.proxies.find(proxy => proxy.name === '[Entry VLESS → Exit VLESS] Exit VLESS');
+        expect(clashExit['dialer-proxy']).toBe('🔗 IN · Entry VLESS');
     });
 
     it('generates Surge underlying-proxy policies', async () => {

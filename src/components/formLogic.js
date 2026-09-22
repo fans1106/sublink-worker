@@ -204,14 +204,24 @@ export const formLogicFn = (t) => {
 
             subscriptionSources() {
                 return this.input.split(/\r?\n/).map((value, line) => {
-                    const url = value.trim();
-                    if (!/^https?:\/\//i.test(url)) return null;
-                    try {
-                        const host = new URL(url).hostname || url;
-                        return { line, label: `${host} #${line + 1}` };
-                    } catch {
-                        return null;
+                    const source = value.trim();
+                    const match = source.match(/^(ss|vmess|vless|hysteria|hysteria2|hy2|trojan|tuic|anytls|https?):\/\//i);
+                    if (!match) return null;
+
+                    let name = match[1].toUpperCase();
+                    if (/^https?$/i.test(match[1])) {
+                        try {
+                            name = new URL(source).hostname || name;
+                        } catch {
+                            return null;
+                        }
+                    } else if (source.includes('#')) {
+                        try {
+                            name = decodeURIComponent(source.slice(source.lastIndexOf('#') + 1)) || name;
+                        } catch { }
                     }
+                    const suffix = ` #${line + 1}`;
+                    return { line, label: `${name.slice(0, 40 - suffix.length)}${suffix}` };
                 }).filter(Boolean);
             },
 

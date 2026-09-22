@@ -2,14 +2,34 @@ import { InvalidPayloadError } from '../services/errors.js';
 
 const MAX_LINKS = 8;
 const MAX_LABEL_LENGTH = 40;
+const CHAIN_SOURCE_PATTERN = /^(ss|vmess|vless|hysteria|hysteria2|hy2|trojan|tuic|anytls|https?):\/\//i;
 
 function normalizeLabel(value, fallback) {
     const label = typeof value === 'string' ? value.trim() : '';
     const normalized = (label || fallback).replace(/[=,\r\n]/g, ' ').trim();
-    if (!normalized || normalized.length > MAX_LABEL_LENGTH) {
-        throw new InvalidPayloadError(`Chain source label must be between 1 and ${MAX_LABEL_LENGTH} characters`);
+    if (!normalized) {
+        throw new InvalidPayloadError('Chain source label must not be empty');
     }
-    return normalized;
+    return normalized.slice(0, MAX_LABEL_LENGTH);
+}
+
+function getDefaultLabel(value, line) {
+    const scheme = value.split('://', 1)[0].toUpperCase();
+    if (/^https?:\/\//i.test(value)) {
+        try {
+            return new URL(value).hostname || `Source ${line + 1}`;
+        } catch {
+            throw new InvalidPayloadError(`Chain source at line ${line + 1} references an invalid URL`);
+        }
+    }
+
+    const fragment = value.includes('#') ? value.slice(value.lastIndexOf('#') + 1) : '';
+    if (fragment) {
+        try {
+            return decodeURIComponent(fragment);
+        } catch { }
+    }
+    return `${scheme} ${line + 1}`;
 }
 
 export function parseChainConfig(raw, inputString) {
@@ -37,23 +57,16 @@ export function parseChainConfig(raw, inputString) {
             throw new InvalidPayloadError(`Invalid chain source at index ${index}`);
         }
 
-        const url = lines[line].trim();
-        if (!/^https?:\/\//i.test(url)) {
-            throw new InvalidPayloadError(`Chain source ${id} must reference an HTTP subscription line`);
-        }
-
-        let host;
-        try {
-            host = new URL(url).hostname;
-        } catch {
-            throw new InvalidPayloadError(`Chain source ${id} references an invalid URL`);
+        const value = lines[line].trim();
+        if (!CHAIN_SOURCE_PATTERN.test(value)) {
+            throw new InvalidPayloadError(`Chain source ${id} must reference a subscription or proxy URI line`);
         }
 
         return {
             id,
             line,
-            url,
-            label: normalizeLabel(source.label, host || `Source ${line + 1}`)
+            value,
+            label: normalizeLabel(source.label, getDefaultLabel(value, line))
         };
     });
 
@@ -93,4 +106,3 @@ export function parseChainConfig(raw, inputString) {
 
     return { version: 1, sources, links };
 }
-

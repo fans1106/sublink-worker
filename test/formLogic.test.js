@@ -51,4 +51,19 @@ describe('formLogic toString fix', () => {
       links: [{ entry: 'entry', exit: 'exit' }]
     });
   });
+
+  it('lists proxy URI lines as chain sources', () => {
+    const fakeWindow = { APP_TRANSLATIONS: {}, PREDEFINED_RULE_SETS: {} };
+    const fn = new Function('window', '(' + formLogicFn.toString() + ')(); return window;');
+    const data = fn(fakeWindow).formData();
+    data.input = [
+      'vless://uuid@entry.example.com:443#Entry%20VLESS',
+      'trojan://secret@exit.example.com:443#Exit%20Trojan'
+    ].join('\n');
+
+    expect(data.subscriptionSources()).toEqual([
+      { line: 0, label: 'Entry VLESS #1' },
+      { line: 1, label: 'Exit Trojan #2' }
+    ]);
+  });
 });

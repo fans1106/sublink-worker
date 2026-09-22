@@ -169,7 +169,7 @@ export class BaseConfigBuilder {
                     if (Array.isArray(result.proxies)) {
                         result.proxies.forEach(proxy => {
                             if (proxy && typeof proxy === 'object' && proxy.tag) {
-                                parsedItems.push(proxy);
+                                this.recordParsedItem(parsedItems, proxy, sourceId);
                             }
                         });
                     }
@@ -178,16 +178,16 @@ export class BaseConfigBuilder {
                 if (Array.isArray(result)) {
                     for (const item of result) {
                         if (item && typeof item === 'object' && item.tag) {
-                            parsedItems.push(item);
+                            this.recordParsedItem(parsedItems, item, sourceId);
                         } else if (typeof item === 'string') {
                             const subResult = await ProxyParser.parse(item, this.userAgent);
                             if (subResult) {
-                                parsedItems.push(subResult);
+                                this.recordParsedItem(parsedItems, subResult, sourceId);
                             }
                         }
                     }
                 } else if (result) {
-                    parsedItems.push(result);
+                    this.recordParsedItem(parsedItems, result, sourceId);
                 }
             }
         }
@@ -197,6 +197,10 @@ export class BaseConfigBuilder {
 
     recordParsedItem(parsedItems, item, sourceId) {
         if (!item) return;
+        if (Array.isArray(item)) {
+            item.forEach(child => this.recordParsedItem(parsedItems, child, sourceId));
+            return;
+        }
         parsedItems.push(item);
         if (!sourceId || typeof item !== 'object' || !item.tag) return;
 
