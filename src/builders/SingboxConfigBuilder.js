@@ -14,9 +14,9 @@ const ANYTLS_OPTION_KEYS = {
 };
 
 export class SingboxConfigBuilder extends BaseConfigBuilder {
-    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry = false, enableClashUI = false, externalController, externalUiDownloadUrl, singboxVersion = '1.12', includeAutoSelect = true) {
+    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry = false, enableClashUI = false, externalController, externalUiDownloadUrl, singboxVersion = '1.12', includeAutoSelect = true, chainConfig = null) {
         const resolvedBaseConfig = baseConfig ?? SING_BOX_CONFIG;
-        super(inputString, resolvedBaseConfig, lang, userAgent, groupByCountry, includeAutoSelect);
+        super(inputString, resolvedBaseConfig, lang, userAgent, groupByCountry, includeAutoSelect, chainConfig);
 
         this.selectedRules = selectedRules;
         this.customRules = customRules;
@@ -180,7 +180,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
 
     addProxyToConfig(proxy) {
         this.config.outbounds = this.config.outbounds || [];
-        addProxyWithDedup(this.config.outbounds, proxy, {
+        return addProxyWithDedup(this.config.outbounds, proxy, {
             getName: (item) => item?.tag,
             setName: (item, name) => {
                 if (item) item.tag = name;
@@ -191,6 +191,18 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
                 return JSON.stringify(restIncoming) === JSON.stringify(restExisting);
             }
         });
+    }
+
+    hasConfigGroup(name) {
+        return this.hasOutboundTag(name);
+    }
+
+    createChainGroup(name, members) {
+        this.config.outbounds.push({ type: 'selector', tag: name, outbounds: uniqueNames(members) });
+    }
+
+    applyChainToProxy(proxy, entryGroupName) {
+        return { ...proxy, detour: entryGroupName };
     }
 
     hasOutboundTag(tag) {
@@ -230,7 +242,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
         const tag = this.t('outboundNames.Node Select');
         if (this.hasOutboundTag(tag)) return;
         const includeAutoSelect = this.includeAutoSelect && this.hasAutoSelectCandidates(proxyList);
-        const members = buildNodeSelectMembers({
+        const members = this.withChainGroups(buildNodeSelectMembers({
             proxyList,
             translator: this.t,
             groupByCountry: this.groupByCountry,
@@ -238,7 +250,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
             countryGroupNames: this.countryGroupNames,
             includeAutoSelect,
             includeReject: false
-        });
+        }));
 
         const group = {
             type: "selector",
@@ -321,7 +333,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
     }
 
     addCountryGroups() {
-        const proxies = this.getProxies();
+        const proxies = this.getOriginalProxies();
         const countryGroups = groupProxiesByCountry(proxies, {
             getName: proxy => this.getProxyName(proxy)
         });
@@ -376,7 +388,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
                 includeAutoSelect,
                 includeReject: false
             });
-            nodeSelectGroup.outbounds = rebuilt;
+            nodeSelectGroup.outbounds = this.withChainGroups(rebuilt);
         }
 
         this.countryGroupNames = countryGroupNames;

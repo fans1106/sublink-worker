@@ -48,11 +48,11 @@ function getClashUdpValue(proxy, defaultEnabled = true) {
 }
 
 export class ClashConfigBuilder extends BaseConfigBuilder {
-    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry = false, enableClashUI = false, externalController, externalUiDownloadUrl, includeAutoSelect = true) {
+    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry = false, enableClashUI = false, externalController, externalUiDownloadUrl, includeAutoSelect = true, chainConfig = null) {
         if (!baseConfig) {
             baseConfig = CLASH_CONFIG;
         }
-        super(inputString, baseConfig, lang, userAgent, groupByCountry, includeAutoSelect);
+        super(inputString, baseConfig, lang, userAgent, groupByCountry, includeAutoSelect, chainConfig);
         this.selectedRules = selectedRules;
         this.customRules = customRules;
         this.countryGroupNames = [];
@@ -310,7 +310,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
 
     addProxyToConfig(proxy) {
         this.config.proxies = this.config.proxies || [];
-        addProxyWithDedup(this.config.proxies, proxy, {
+        return addProxyWithDedup(this.config.proxies, proxy, {
             getName: (item) => item?.name,
             setName: (item, name) => {
                 if (item) item.name = name;
@@ -321,6 +321,19 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
                 return JSON.stringify(restOfProxy) === JSON.stringify(restOfExisting);
             }
         });
+    }
+
+    hasConfigGroup(name) {
+        return this.hasProxyGroup(name);
+    }
+
+    createChainGroup(name, members) {
+        this.config['proxy-groups'] = this.config['proxy-groups'] || [];
+        this.config['proxy-groups'].push({ name, type: 'select', proxies: uniqueNames(members) });
+    }
+
+    applyChainToProxy(proxy, entryGroupName) {
+        return { ...proxy, 'dialer-proxy': entryGroupName };
     }
 
     hasProxyGroup(name) {
@@ -364,14 +377,14 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
         this.config['proxy-groups'] = this.config['proxy-groups'] || [];
         const nodeName = this.t('outboundNames.Node Select');
         if (this.hasProxyGroup(nodeName)) return;
-        const list = buildNodeSelectMembers({
+        const list = this.withChainGroups(buildNodeSelectMembers({
             proxyList,
             translator: this.t,
             groupByCountry: this.groupByCountry,
             manualGroupName: this.manualGroupName,
             countryGroupNames: this.countryGroupNames,
             includeAutoSelect: this.shouldIncludeAutoSelectGroup(proxyList)
-        });
+        }));
 
         const group = {
             type: "select",
@@ -470,7 +483,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
     }
 
     addCountryGroups() {
-        const proxies = this.getProxies();
+        const proxies = this.getOriginalProxies();
         const countryGroups = groupProxiesByCountry(proxies, {
             getName: proxy => this.getProxyName(proxy)
         });
@@ -553,7 +566,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
                 countryGroupNames,
                 includeAutoSelect: this.shouldIncludeAutoSelectGroup(this.getProxyList())
             });
-            nodeSelectGroup.proxies = rebuilt;
+            nodeSelectGroup.proxies = this.withChainGroups(rebuilt);
         }
         this.countryGroupNames = countryGroupNames;
         this.manualGroupName = manualGroupName;

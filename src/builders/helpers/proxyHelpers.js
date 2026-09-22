@@ -17,16 +17,16 @@ function defaultIsSame(a, b) {
 }
 
 export function addProxyWithDedup(collection, proxy, { getName = defaultGetName, setName = defaultSetName, isSame = defaultIsSame } = {}) {
-    if (!proxy) return;
+    if (!proxy) return null;
     if (!Array.isArray(collection)) {
         throw new Error('addProxyWithDedup expects the target collection to be an array');
     }
 
     let candidate = proxy;
     const targetName = getName(candidate) || '';
-    const hasIdentical = collection.some(item => isSame(item, candidate));
-    if (hasIdentical) {
-        return;
+    const identical = collection.find(item => isSame(item, candidate));
+    if (identical) {
+        return identical;
     }
 
     const usedNames = new Set(collection.map(item => getName(item) || ''));
@@ -40,4 +40,5 @@ export function addProxyWithDedup(collection, proxy, { getName = defaultGetName,
     }
 
     collection.push(candidate);
+    return candidate;
 }

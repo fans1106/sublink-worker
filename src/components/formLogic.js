@@ -71,6 +71,9 @@ export const formLogicFn = (t) => {
 
         return {
             input: '',
+            chainEnabled: false,
+            chainEntryLine: '',
+            chainExitLine: '',
             showAdvanced: false,
             // Accordion states for each section (二级手风琴状态)
             accordionSections: {
@@ -139,6 +142,9 @@ export const formLogicFn = (t) => {
                 this.configEditor = localStorage.getItem('configEditor') || '';
                 this.configType = localStorage.getItem('configType') || 'singbox';
                 this.customShortCode = localStorage.getItem('customShortCode') || '';
+                this.chainEnabled = localStorage.getItem('chainEnabled') === 'true';
+                this.chainEntryLine = localStorage.getItem('chainEntryLine') || '';
+                this.chainExitLine = localStorage.getItem('chainExitLine') || '';
                 const initialUrlParams = new URLSearchParams(window.location.search);
                 this.currentConfigId = initialUrlParams.get('configId') || '';
 
@@ -161,6 +167,9 @@ export const formLogicFn = (t) => {
                     this.handleInputChange(val);
                 });
                 this.$watch('showAdvanced', val => localStorage.setItem('advancedToggle', val));
+                this.$watch('chainEnabled', val => localStorage.setItem('chainEnabled', val));
+                this.$watch('chainEntryLine', val => localStorage.setItem('chainEntryLine', val));
+                this.$watch('chainExitLine', val => localStorage.setItem('chainExitLine', val));
                 this.$watch('groupByCountry', val => localStorage.setItem('groupByCountry', val));
                 this.$watch('includeAutoSelect', val => localStorage.setItem('includeAutoSelect', val));
                 this.$watch('enableClashUI', val => localStorage.setItem('enableClashUI', val));
@@ -191,6 +200,44 @@ export const formLogicFn = (t) => {
                 if (rules && rules[this.selectedPredefinedRule]) {
                     this.selectedRules = rules[this.selectedPredefinedRule];
                 }
+            },
+
+            subscriptionSources() {
+                return this.input.split(/\r?\n/).map((value, line) => {
+                    const url = value.trim();
+                    if (!/^https?:\/\//i.test(url)) return null;
+                    try {
+                        const host = new URL(url).hostname || url;
+                        return { line, label: `${host} #${line + 1}` };
+                    } catch {
+                        return null;
+                    }
+                }).filter(Boolean);
+            },
+
+            buildChainConfig() {
+                if (!this.chainEnabled) return null;
+                const sources = this.subscriptionSources();
+                if (this.chainEntryLine === '' || this.chainExitLine === '') {
+                    alert(window.APP_TRANSLATIONS.chainInvalid);
+                    return null;
+                }
+                const entryLine = Number(this.chainEntryLine);
+                const exitLine = Number(this.chainExitLine);
+                const entry = sources.find(source => source.line === entryLine);
+                const exit = sources.find(source => source.line === exitLine);
+                if (!entry || !exit || entry.line === exit.line) {
+                    alert(window.APP_TRANSLATIONS.chainInvalid);
+                    return null;
+                }
+                return {
+                    version: 1,
+                    sources: [
+                        { id: 'entry', line: entry.line, label: entry.label },
+                        { id: 'exit', line: exit.line, label: exit.label }
+                    ],
+                    links: [{ entry: 'entry', exit: 'exit' }]
+                };
             },
 
             getSubconverterUrl() {
@@ -347,6 +394,9 @@ export const formLogicFn = (t) => {
                     this.generatedLinks = null;
                     this.shortenedLinks = null;
                     this.customShortCode = '';
+                    this.chainEnabled = false;
+                    this.chainEntryLine = '';
+                    this.chainExitLine = '';
                     // Also clear from localStorage
                     localStorage.removeItem('customShortCode');
                 }
@@ -378,6 +428,10 @@ export const formLogicFn = (t) => {
                     params.append('selectedRules', JSON.stringify(this.selectedRules));
                     params.append('customRules', JSON.stringify(customRules));
 
+                    const chainConfig = this.buildChainConfig();
+                    if (this.chainEnabled && !chainConfig) return;
+                    if (chainConfig) params.append('chain', JSON.stringify(chainConfig));
+
                     if (this.groupByCountry) params.append('group_by_country', 'true');
                     if (!this.includeAutoSelect) params.append('include_auto_select', 'false');
                     if (this.enableClashUI) params.append('enable_clash_ui', 'true');
@@ -394,7 +448,7 @@ export const formLogicFn = (t) => {
                     const queryString = params.toString();
 
                     this.generatedLinks = {
-                        xray: origin + '/xray?' + queryString,
+                        ...(chainConfig ? {} : { xray: origin + '/xray?' + queryString }),
                         singbox: origin + '/singbox?' + queryString,
                         clash: origin + '/clash?' + queryString,
                         surge: origin + '/surge?' + queryString
@@ -486,6 +540,9 @@ export const formLogicFn = (t) => {
 
             // Handle input change with debounce
             handleInputChange(val) {
+                const validLines = new Set(this.subscriptionSources().map(source => String(source.line)));
+                if (this.chainEntryLine !== '' && !validLines.has(String(this.chainEntryLine))) this.chainEntryLine = '';
+                if (this.chainExitLine !== '' && !validLines.has(String(this.chainExitLine))) this.chainExitLine = '';
                 // Clear previous timer
                 if (this.parseDebounceTimer) {
                     clearTimeout(this.parseDebounceTimer);
@@ -589,6 +646,21 @@ export const formLogicFn = (t) => {
                     this.input = config;
                 }
 
+                const chain = params.get('chain');
+                if (chain) {
+                    try {
+                        const parsed = JSON.parse(chain);
+                        const link = parsed?.links?.[0];
+                        const entry = parsed?.sources?.find(source => source.id === link?.entry);
+                        const exit = parsed?.sources?.find(source => source.id === link?.exit);
+                        if (entry && exit) {
+                            this.chainEnabled = true;
+                            this.chainEntryLine = String(entry.line);
+                            this.chainExitLine = String(exit.line);
+                        }
+                    } catch { }
+                }
+
                 // Extract selectedRules
                 const selectedRules = params.get('selectedRules');
                 if (selectedRules) {
@@ -647,7 +719,7 @@ export const formLogicFn = (t) => {
 
                 // Expand advanced options if any advanced settings are present
                 if (selectedRules || customRules || this.groupByCountry || this.enableClashUI ||
-                    externalController || externalUiDownloadUrl || ua || configId) {
+                    externalController || externalUiDownloadUrl || ua || configId || chain) {
                     this.showAdvanced = true;
                 }
             }

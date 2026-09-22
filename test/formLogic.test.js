@@ -32,4 +32,23 @@ describe('formLogic toString fix', () => {
     expect(typeof data.toggleAccordion).toBe('function');
     expect(data.showAdvanced).toBe(false);
   });
+
+  it('serializes a selected subscription chain', () => {
+    const fakeWindow = { APP_TRANSLATIONS: {}, PREDEFINED_RULE_SETS: {} };
+    const fn = new Function('window', '(' + formLogicFn.toString() + ')(); return window;');
+    const data = fn(fakeWindow).formData();
+    data.input = 'https://entry.example/sub\nhttps://exit.example/sub';
+    data.chainEnabled = true;
+    data.chainEntryLine = '0';
+    data.chainExitLine = '1';
+
+    expect(data.buildChainConfig()).toEqual({
+      version: 1,
+      sources: [
+        { id: 'entry', line: 0, label: 'entry.example #1' },
+        { id: 'exit', line: 1, label: 'exit.example #2' }
+      ],
+      links: [{ entry: 'entry', exit: 'exit' }]
+    });
+  });
 });

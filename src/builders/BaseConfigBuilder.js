@@ -2,9 +2,10 @@ import { ProxyParser } from '../parsers/index.js';
 import { createStableProviderName, deepCopy, tryDecodeSubscriptionLines, decodeBase64 } from '../utils.js';
 import { createTranslator } from '../i18n/index.js';
 import { generateRules, getOutbounds, PREDEFINED_RULE_SETS } from '../config/index.js';
+import { InvalidPayloadError } from '../services/errors.js';
 
 export class BaseConfigBuilder {
-    constructor(inputString, baseConfig, lang, userAgent, groupByCountry = false, includeAutoSelect = true) {
+    constructor(inputString, baseConfig, lang, userAgent, groupByCountry = false, includeAutoSelect = true, chainConfig = null) {
         this.inputString = inputString;
         this.config = deepCopy(baseConfig);
         this.customRules = [];
@@ -18,11 +19,21 @@ export class BaseConfigBuilder {
         this.providerNodeNames = [];  // node names from provider subscriptions, for country enumeration only
         this.autoProviderDescriptors = undefined;
         this.subscriptionUserinfo = undefined;
+        this.chainConfig = chainConfig;
+        this.chainSourcesByLine = new Map((chainConfig?.sources || []).map(source => [source.line, source]));
+        this.chainedSourceIds = new Set((chainConfig?.links || []).flatMap(link => [link.entry.id, link.exit.id]));
+        this.proxySourceIds = new WeakMap();
+        this.sourceItems = new Map();
+        this.sourceProxyNames = new Map();
+        this.chainGroupNames = [];
+        this.chainReservedNames = new Set();
     }
 
     async build() {
         const customItems = await this.parseCustomItems();
         this.addCustomItems(customItems);
+        this.originalProxyNames = new Set(this.getProxyList());
+        this.addChains();
         this.addSelectors();
         return this.formatConfig();
     }
@@ -77,8 +88,12 @@ export class BaseConfigBuilder {
         }
 
         // Otherwise, line-by-line processing (URLs, subscription content, remote lists, etc.)
-        const urls = input.split('\n').filter(url => url.trim() !== '');
-        for (const url of urls) {
+        const urls = input.split(/\r?\n/)
+            .map((url, line) => ({ url, line }))
+            .filter(item => item.url.trim() !== '');
+        for (const { url, line } of urls) {
+            const chainSource = this.chainSourcesByLine.get(line);
+            const sourceId = chainSource?.id;
             let processedUrls = tryDecodeSubscriptionLines(url);
             if (!Array.isArray(processedUrls)) {
                 processedUrls = [processedUrls];
@@ -101,7 +116,7 @@ export class BaseConfigBuilder {
                             }
 
                             // If format is compatible with target client, use as provider
-                            if (this.isCompatibleProviderFormat(format)) {
+                            if (!this.chainedSourceIds.has(sourceId) && this.isCompatibleProviderFormat(format)) {
                                 this.providerUrls.push(originalUrl);
                                 // Content is already fetched; keep node names so country
                                 // groups can be built over provider members later.
@@ -118,7 +133,7 @@ export class BaseConfigBuilder {
                                 if (Array.isArray(result.proxies)) {
                                     result.proxies.forEach(proxy => {
                                         if (proxy && typeof proxy === 'object' && proxy.tag) {
-                                            parsedItems.push(proxy);
+                                            this.recordParsedItem(parsedItems, proxy, sourceId);
                                         }
                                     });
                                 }
@@ -128,11 +143,11 @@ export class BaseConfigBuilder {
                             if (Array.isArray(result)) {
                                 for (const item of result) {
                                     if (item && typeof item === 'object' && item.tag) {
-                                        parsedItems.push(item);
+                                        this.recordParsedItem(parsedItems, item, sourceId);
                                     } else if (typeof item === 'string') {
                                         const subResult = await ProxyParser.parse(item, this.userAgent);
                                         if (subResult) {
-                                            parsedItems.push(subResult);
+                                            this.recordParsedItem(parsedItems, subResult, sourceId);
                                         }
                                     }
                                 }
@@ -178,6 +193,18 @@ export class BaseConfigBuilder {
         }
 
         return parsedItems;
+    }
+
+    recordParsedItem(parsedItems, item, sourceId) {
+        if (!item) return;
+        parsedItems.push(item);
+        if (!sourceId || typeof item !== 'object' || !item.tag) return;
+
+        this.proxySourceIds.set(item, sourceId);
+        if (!this.sourceItems.has(sourceId)) {
+            this.sourceItems.set(sourceId, []);
+        }
+        this.sourceItems.get(sourceId).push(item);
     }
 
     /**
@@ -386,15 +413,108 @@ export class BaseConfigBuilder {
             if (item?.tag) {
                 const convertedProxy = this.convertProxy(item);
                 if (convertedProxy) {
-                    this.addProxyToConfig(convertedProxy);
+                    const addedProxy = this.addProxyToConfig(convertedProxy);
+                    const sourceId = this.proxySourceIds.get(item);
+                    if (sourceId && addedProxy && this.isUsableChainProxy(addedProxy)) {
+                        if (!this.sourceProxyNames.has(sourceId)) {
+                            this.sourceProxyNames.set(sourceId, []);
+                        }
+                        const name = this.getProxyName(addedProxy);
+                        if (name && !this.sourceProxyNames.get(sourceId).includes(name)) {
+                            this.sourceProxyNames.get(sourceId).push(name);
+                        }
+                    }
                 }
             }
         });
     }
 
+    isUsableChainProxy(proxy) {
+        return !!proxy;
+    }
+
+    hasConfigGroup() {
+        return false;
+    }
+
+    createChainGroup() {
+        throw new Error('createChainGroup must be implemented in child class');
+    }
+
+    applyChainToProxy() {
+        throw new Error('applyChainToProxy must be implemented in child class');
+    }
+
+    reserveChainName(baseName) {
+        const usedProxyNames = new Set(this.getProxyList());
+        let name = baseName;
+        let suffix = 2;
+        while (usedProxyNames.has(name) || this.hasConfigGroup(name) || this.chainReservedNames.has(name)) {
+            name = `${baseName} ${suffix}`;
+            suffix += 1;
+        }
+        this.chainReservedNames.add(name);
+        return name;
+    }
+
+    addChains() {
+        if (!this.chainConfig?.links?.length) return;
+
+        const entryGroups = new Map();
+        this.chainConfig.links.forEach(link => {
+            if (!entryGroups.has(link.entry.id)) {
+                const members = this.sourceProxyNames.get(link.entry.id) || [];
+                if (members.length === 0) {
+                    throw new InvalidPayloadError(`Chain entry subscription has no supported proxies: ${link.entry.label}`);
+                }
+                const groupName = this.reserveChainName(`🔗 IN · ${link.entry.label}`);
+                this.createChainGroup(groupName, members);
+                entryGroups.set(link.entry.id, groupName);
+            }
+
+            const exitItems = this.sourceItems.get(link.exit.id) || [];
+            if (exitItems.length === 0) {
+                throw new InvalidPayloadError(`Chain exit subscription has no supported proxies: ${link.exit.label}`);
+            }
+
+            const entryGroupName = entryGroups.get(link.entry.id);
+            const chainedNames = [];
+            exitItems.forEach(item => {
+                const cloned = deepCopy(item);
+                cloned.tag = this.reserveChainName(`[${link.entry.label} → ${link.exit.label}] ${item.tag}`);
+                const converted = this.convertProxy(cloned);
+                const chained = converted && this.applyChainToProxy(converted, entryGroupName);
+                if (!chained) return;
+                const added = this.addProxyToConfig(chained);
+                if (added && this.isUsableChainProxy(added)) {
+                    const name = this.getProxyName(added);
+                    if (name) chainedNames.push(name);
+                }
+            });
+
+            if (chainedNames.length === 0) {
+                throw new InvalidPayloadError(`Chain exit subscription has no supported proxies: ${link.exit.label}`);
+            }
+            const chainGroupName = this.reserveChainName(`🔗 ${link.entry.label} → ${link.exit.label}`);
+            this.createChainGroup(chainGroupName, chainedNames);
+            this.chainGroupNames.push(chainGroupName);
+        });
+    }
+
+    withChainGroups(options = []) {
+        if (this.chainGroupNames.length === 0) return options;
+        const insertAt = options.findIndex(option => option === 'DIRECT' || option === 'REJECT');
+        const index = insertAt === -1 ? options.length : insertAt;
+        return [
+            ...options.slice(0, index),
+            ...this.chainGroupNames.filter(name => !options.includes(name)),
+            ...options.slice(index)
+        ];
+    }
+
     addSelectors() {
         const outbounds = this.getOutboundsList();
-        const proxyList = this.getProxyList();
+        const proxyList = this.originalProxyNames ? [...this.originalProxyNames] : this.getProxyList();
 
         this.addAutoSelectGroup(proxyList);
         this.addNodeSelectGroup(proxyList);
@@ -409,6 +529,11 @@ export class BaseConfigBuilder {
         if (this.pendingUserProxyGroups && this.pendingUserProxyGroups.length > 0) {
             this.mergeUserProxyGroups(this.pendingUserProxyGroups);
         }
+    }
+
+    getOriginalProxies() {
+        if (!this.originalProxyNames) return this.getProxies();
+        return this.getProxies().filter(proxy => this.originalProxyNames.has(this.getProxyName(proxy)));
     }
 
     /**

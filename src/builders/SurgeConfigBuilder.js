@@ -5,9 +5,9 @@ import { addProxyWithDedup } from './helpers/proxyHelpers.js';
 import { buildSelectorMembers, buildNodeSelectMembers, buildCustomRuleMembers, uniqueNames } from './helpers/groupBuilder.js';
 
 export class SurgeConfigBuilder extends BaseConfigBuilder {
-    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry, includeAutoSelect = true) {
+    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry, includeAutoSelect = true, chainConfig = null) {
         const resolvedBaseConfig = baseConfig ?? SURGE_CONFIG;
-        super(inputString, resolvedBaseConfig, lang, userAgent, groupByCountry, includeAutoSelect);
+        super(inputString, resolvedBaseConfig, lang, userAgent, groupByCountry, includeAutoSelect, chainConfig);
         this.selectedRules = selectedRules;
         this.customRules = customRules;
         this.subscriptionUrl = null;
@@ -136,7 +136,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
 
     addProxyToConfig(proxy) {
         this.config.proxies = this.config.proxies || [];
-        addProxyWithDedup(this.config.proxies, proxy, {
+        return addProxyWithDedup(this.config.proxies, proxy, {
             getName: (item) => this.getProxyName(item),
             setName: (value, name) => {
                 const equalsPos = typeof value === 'string' ? value.indexOf('=') : -1;
@@ -152,6 +152,24 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
                 return existingSuffix === incomingSuffix;
             }
         });
+    }
+
+    isUsableChainProxy(proxy) {
+        return typeof proxy === 'string' && !proxy.trimStart().startsWith('#');
+    }
+
+    hasConfigGroup(name) {
+        return this.hasProxyGroup(name);
+    }
+
+    createChainGroup(name, members) {
+        this.config['proxy-groups'] = this.config['proxy-groups'] || [];
+        this.config['proxy-groups'].push(this.createProxyGroup(name, 'select', members));
+    }
+
+    applyChainToProxy(proxy, entryGroupName) {
+        if (!this.isUsableChainProxy(proxy)) return null;
+        return `${proxy}, underlying-proxy=${entryGroupName}`;
     }
 
     hasProxyGroup(name) {
@@ -267,7 +285,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
     }
 
     addNodeSelectGroup(proxyList) {
-        const options = this.buildNodeSelectOptions(proxyList);
+        const options = this.withChainGroups(this.buildNodeSelectOptions(proxyList));
         if (this.hasProxyGroup(this.t('outboundNames.Node Select'))) return;
         this.config['proxy-groups'].push(
             this.createProxyGroup(this.t('outboundNames.Node Select'), 'select', options)
@@ -319,7 +337,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
     }
 
     addCountryGroups() {
-        const proxies = this.getValidProxies();
+        const proxies = this.getOriginalProxies().filter(proxy => this.isUsableChainProxy(proxy));
         const countryGroups = groupProxiesByCountry(proxies, {
             getName: proxy => this.getProxyName(proxy)
         });
@@ -365,7 +383,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
                 countryGroupNames,
                 includeAutoSelect: this.includeAutoSelect
             });
-            const newGroup = this.createProxyGroup(this.t('outboundNames.Node Select'), 'select', newOptions);
+            const newGroup = this.createProxyGroup(this.t('outboundNames.Node Select'), 'select', this.withChainGroups(newOptions));
             this.config['proxy-groups'][nodeSelectGroupIndex] = newGroup;
         }
         this.countryGroupNames = countryGroupNames;

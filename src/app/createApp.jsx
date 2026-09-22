@@ -17,6 +17,7 @@ import { ConfigStorageService } from '../services/configStorageService.js';
 import { ServiceError, MissingDependencyError } from '../services/errors.js';
 import { normalizeRuntime } from '../runtime/runtimeConfig.js';
 import { PREDEFINED_RULE_SETS, SING_BOX_CONFIG, SING_BOX_CONFIG_V1_11, generateSubconverterConfig } from '../config/index.js';
+import { parseChainConfig } from '../chains/chainConfig.js';
 
 const DEFAULT_USER_AGENT = 'curl/7.74.0';
 
@@ -85,6 +86,7 @@ export function createApp(bindings = {}) {
             const externalUiDownloadUrl = c.req.query('external_ui_download_url');
             const configId = c.req.query('configId');
             const lang = c.get('lang');
+            const chainConfig = parseChainConfig(c.req.query('chain'), config);
 
             const requestedSingboxVersion = c.req.query('singbox_version') || c.req.query('sb_version') || c.req.query('sb_ver');
             const requestUserAgent = getRequestHeader(c.req, 'User-Agent');
@@ -111,7 +113,8 @@ export function createApp(bindings = {}) {
                 externalController,
                 externalUiDownloadUrl,
                 singboxConfigVersion,
-                includeAutoSelect
+                includeAutoSelect,
+                chainConfig
             );
             await builder.build();
             const userinfo = builder.getSubscriptionUserinfo();
@@ -141,6 +144,7 @@ export function createApp(bindings = {}) {
             const externalUiDownloadUrl = c.req.query('external_ui_download_url');
             const configId = c.req.query('configId');
             const lang = c.get('lang');
+            const chainConfig = parseChainConfig(c.req.query('chain'), config);
 
             let baseConfig;
             if (configId?.startsWith('clash_')) {
@@ -159,7 +163,8 @@ export function createApp(bindings = {}) {
                 enableClashUI,
                 externalController,
                 externalUiDownloadUrl,
-                includeAutoSelect
+                includeAutoSelect,
+                chainConfig
             );
             await builder.build();
             const userinfo = builder.getSubscriptionUserinfo();
@@ -187,6 +192,7 @@ export function createApp(bindings = {}) {
             const includeAutoSelect = c.req.query('include_auto_select') !== 'false';
             const configId = c.req.query('configId');
             const lang = c.get('lang');
+            const chainConfig = parseChainConfig(c.req.query('chain'), config);
 
             let baseConfig;
             if (configId?.startsWith('surge_')) {
@@ -202,7 +208,8 @@ export function createApp(bindings = {}) {
                 lang,
                 ua,
                 groupByCountry,
-                includeAutoSelect
+                includeAutoSelect,
+                chainConfig
             );
             builder.setSubscriptionUrl(c.req.url);
             await builder.build();
@@ -264,6 +271,9 @@ export function createApp(bindings = {}) {
         const inputString = c.req.query('config');
         if (!inputString) {
             return c.text('Missing config parameter', 400);
+        }
+        if (c.req.query('chain')) {
+            return c.text('Chain proxy is not supported by Xray URI subscriptions', 400);
         }
 
         const proxylist = inputString.split('\n');
