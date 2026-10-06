@@ -33,22 +33,17 @@ describe('formLogic toString fix', () => {
     expect(data.showAdvanced).toBe(false);
   });
 
-  it('serializes a selected subscription chain', () => {
+  it('serializes an OUT source without an IN selection', () => {
     const fakeWindow = { APP_TRANSLATIONS: {}, PREDEFINED_RULE_SETS: {} };
     const fn = new Function('window', '(' + formLogicFn.toString() + ')(); return window;');
     const data = fn(fakeWindow).formData();
     data.input = 'https://entry.example/sub\nhttps://exit.example/sub';
     data.chainEnabled = true;
-    data.chainEntryLine = '0';
     data.chainExitLine = '1';
 
     expect(data.buildChainConfig()).toEqual({
-      version: 1,
-      sources: [
-        { id: 'entry', line: 0, label: 'entry.example #1' },
-        { id: 'exit', line: 1, label: 'exit.example #2' }
-      ],
-      links: [{ entry: 'entry', exit: 'exit' }]
+      version: 2,
+      exit: { line: 1, label: 'exit.example #2' }
     });
   });
 
@@ -65,5 +60,23 @@ describe('formLogic toString fix', () => {
       { line: 0, label: 'Entry VLESS #1' },
       { line: 1, label: 'Exit Trojan #2' }
     ]);
+  });
+
+  it('restores the OUT source from both old and new subscription URLs', () => {
+    const fakeWindow = { APP_TRANSLATIONS: {}, PREDEFINED_RULE_SETS: {} };
+    const fn = new Function('window', '(' + formLogicFn.toString() + ')(); return window;');
+    for (const chain of [
+      { version: 2, exit: { line: 1 } },
+      { version: 1, sources: [{ id: 'in', line: 0 }, { id: 'out', line: 1 }], links: [{ entry: 'in', exit: 'out' }] }
+    ]) {
+      const data = fn(fakeWindow).formData();
+      const url = new URL('http://localhost/clash');
+      url.searchParams.set('config', 'https://entry.example/sub\nhttps://exit.example/sub');
+      url.searchParams.set('chain', JSON.stringify(chain));
+      data.populateFormFromUrl(url);
+      expect(data.chainEnabled).toBe(true);
+      expect(data.chainExitLine).toBe('1');
+      expect(data.buildChainConfig()).toEqual({ version: 2, exit: { line: 1, label: 'exit.example #2' } });
+    }
   });
 });

@@ -13,7 +13,6 @@ const preset = {
     version: 1,
     input,
     chainEnabled: true,
-    chainEntryLine: '0',
     chainExitLine: '1',
     selectedPredefinedRule: 'custom',
     selectedRules: ['Google'],
@@ -100,7 +99,7 @@ describe('form presets', () => {
     it('validates payloads and chain sources before saving', async () => {
         const app = createTestApp();
         for (const content of [null, { version: 2 }, { ...preset, input: '' },
-            { ...preset, chainExitLine: '0' }, { ...preset, chainEntryLine: '99' },
+            { ...preset, chainExitLine: '' }, { ...preset, chainExitLine: '99' },
             { ...preset, includeAutoSelect: 'false' }, { ...preset, selectedRules: [1] },
             { ...preset, input: 'a'.repeat(256 * 1024) }]) {
             expect((await postPreset(app, content)).status).toBe(400);
@@ -167,5 +166,11 @@ describe('form presets', () => {
     it('keeps unrelated browser state out of stored presets', () => {
         const normalized = normalizeFormPreset({ ...preset, loading: true, generatedLinks: { clash: 'old' } });
         expect(normalized).toEqual(preset);
+    });
+
+    it('imports old presets using their OUT source and discards the old IN selection', () => {
+        const normalized = normalizeFormPreset({ ...preset, chainEntryLine: '0' });
+        expect(normalized).toEqual(preset);
+        expect(normalized.chainEntryLine).toBeUndefined();
     });
 });

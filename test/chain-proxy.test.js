@@ -3,10 +3,7 @@ import yaml from 'js-yaml';
 
 vi.mock('../src/parsers/subscription/httpSubscriptionFetcher.js', async (importOriginal) => {
     const original = await importOriginal();
-    return {
-        ...original,
-        fetchSubscriptionWithFormat: vi.fn()
-    };
+    return { ...original, fetchSubscriptionWithFormat: vi.fn() };
 });
 
 import { fetchSubscriptionWithFormat } from '../src/parsers/subscription/httpSubscriptionFetcher.js';
@@ -17,179 +14,162 @@ import { SurgeConfigBuilder } from '../src/builders/SurgeConfigBuilder.js';
 import { createApp } from '../src/app/createApp.jsx';
 import { MemoryKVAdapter } from '../src/adapters/kv/memoryKv.js';
 
-const input = 'https://entry.example/sub\nhttps://exit.example/sub';
-const chain = parseChainConfig(JSON.stringify({
-    version: 1,
-    sources: [
-        { id: 'entry', line: 0, label: 'Entry' },
-        { id: 'exit', line: 1, label: 'Exit' }
-    ],
-    links: [{ entry: 'entry', exit: 'exit' }]
-}), input);
-
+const input = 'https://entry.example/sub\nhttps://exit.example/sub\nhttps://third.example/sub';
+const rawChain = { version: 2, exit: { line: 1, label: 'Exit' } };
+const chain = parseChainConfig(rawChain, input);
 const vlessInput = [
-    'vless://11111111-1111-1111-1111-111111111111@entry.example.com:443?encryption=none&security=tls&sni=entry.example.com#Entry%20VLESS',
-    'vless://22222222-2222-2222-2222-222222222222@exit.example.com:443?encryption=none&security=tls&sni=exit.example.com#Exit%20VLESS'
+    'vless://11111111-1111-1111-1111-111111111111@entry.example.com:443?security=tls#Entry%20VLESS',
+    'vless://22222222-2222-2222-2222-222222222222@exit.example.com:443?security=tls#Exit%20VLESS'
 ].join('\n');
-const vlessChain = parseChainConfig({
-    version: 1,
-    sources: [
-        { id: 'entry', line: 0, label: 'Entry VLESS' },
-        { id: 'exit', line: 1, label: 'Exit VLESS' }
-    ],
-    links: [{ entry: 'entry', exit: 'exit' }]
-}, vlessInput);
+const vlessChain = parseChainConfig({ version: 2, exit: { line: 1, label: 'Exit VLESS' } }, vlessInput);
 
-const subscription = (name, server) => `
-proxies:
-  - name: ${name}
-    type: ss
-    server: ${server}
-    port: 443
-    cipher: aes-128-gcm
-    password: secret
-`;
-
-function mockSubscriptions() {
-    fetchSubscriptionWithFormat.mockImplementation(url => Promise.resolve({
-        content: url.includes('entry')
-            ? subscription('Entry Node', 'entry.example')
-            : subscription('Exit Node', 'exit.example'),
-        format: 'clash',
-        url
-    }));
+function mockSubscriptions(format = 'clash', overrides = '') {
+    fetchSubscriptionWithFormat.mockImplementation(url => {
+        const source = new URL(url).hostname.split('.')[0];
+        const name = source[0].toUpperCase() + source.slice(1) + ' Node';
+        return Promise.resolve({
+            content: format === 'singbox' ? JSON.stringify({ outbounds: [{
+                type: 'shadowsocks', tag: name, server: source + '.example',
+                server_port: 443, method: 'aes-128-gcm', password: 'secret'
+            }] }) : yaml.dump({ proxies: [{
+                name, type: 'ss', server: source + '.example', port: 443,
+                cipher: 'aes-128-gcm', password: 'secret'
+            }] }) + overrides,
+            format, url
+        });
+    });
 }
 
-describe('subscription chain proxy', () => {
+describe('OUT source chain proxy', () => {
     afterEach(() => vi.clearAllMocks());
 
-    it('rejects self references and multi-hop links', () => {
-        expect(() => parseChainConfig({
+    it('validates OUT references and migrates old single-link configurations', () => {
+        expect(() => parseChainConfig({ version: 2, exit: { line: 99 } }, input)).toThrow('OUT source line');
+        expect(() => parseChainConfig({ version: 2, exit: { line: 0 } }, 'not a URI')).toThrow('subscription or proxy URI');
+        expect(() => parseChainConfig('{', input)).toThrow('expected JSON');
+        expect(() => parseChainConfig({ version: 3 }, input)).toThrow('structure');
+        const legacy = {
             version: 1,
-            sources: [{ id: 'entry', line: 0 }],
-            links: [{ entry: 'entry', exit: 'entry' }]
-        }, input)).toThrow('Invalid chain link');
-
-        expect(() => parseChainConfig({
-            version: 1,
-            sources: [
-                { id: 'a', line: 0 },
-                { id: 'b', line: 1 },
-                { id: 'c', line: 2 }
-            ],
-            links: [{ entry: 'a', exit: 'b' }, { entry: 'b', exit: 'c' }]
-        }, `${input}\nhttps://third.example/sub`)).toThrow('Multi-hop');
+            sources: [{ id: 'a', line: 0 }, { id: 'b', line: 1, label: 'Exit' }],
+            links: [{ entry: 'a', exit: 'b' }]
+        };
+        expect(parseChainConfig(JSON.stringify(legacy), input)).toEqual(chain);
+        expect(() => parseChainConfig({ ...legacy, links: [{ entry: 'a', exit: 'a' }] }, input)).toThrow('Invalid chain link');
+        expect(() => parseChainConfig({ ...legacy, links: [...legacy.links, legacy.links[0]] }, input)).toThrow('single OUT');
     });
 
-    it('generates Sing-Box detour outbounds without changing original nodes', async () => {
-        mockSubscriptions();
+    it('uses every non-OUT subscription as Sing-Box auto selection candidates', async () => {
+        mockSubscriptions('singbox');
         const builder = new SingboxConfigBuilder(
             input, [], [], null, 'zh-CN', 'test-agent', false,
             false, null, null, '1.12', true, chain
         );
         await builder.build();
-
-        const entryGroup = builder.config.outbounds.find(outbound => outbound.tag === '🔗 IN · Entry');
-        const autoGroup = builder.config.outbounds.find(outbound => outbound.tag === entryGroup.outbounds[0]);
-        const chainGroup = builder.config.outbounds.find(outbound => outbound.tag === '🔗 Entry → Exit');
-        const chainedExit = builder.config.outbounds.find(outbound => outbound.tag === '[Entry → Exit] Exit Node');
+        const autoName = builder.t('outboundNames.Auto Select');
+        const auto = builder.config.outbounds.find(outbound => outbound.tag === autoName);
+        const chainedExit = builder.config.outbounds.find(outbound => outbound.tag === '[OUT · Exit] Exit Node');
         const originalExit = builder.config.outbounds.find(outbound => outbound.tag === 'Exit Node');
-        const nodeSelect = builder.config.outbounds.find(outbound => outbound.tag === '🚀 节点选择');
+        const chainGroup = builder.config.outbounds.find(outbound => outbound.tag === '🔗 OUT · Exit');
 
-        expect(entryGroup.outbounds).toContain('Entry Node');
-        expect(autoGroup.type).toBe('urltest');
-        expect(autoGroup.outbounds).toEqual(['Entry Node']);
-        expect(autoGroup.url).toBe('https://www.gstatic.com/generate_204');
-        expect(chainedExit.detour).toBe(entryGroup.tag);
+        expect(auto.type).toBe('urltest');
+        expect(auto.outbounds).toEqual(['Entry Node', 'Third Node']);
+        expect(chainedExit.detour).toBe(autoName);
         expect(originalExit.detour).toBeUndefined();
-        expect(chainGroup.outbounds).toContain(chainedExit.tag);
-        expect(nodeSelect.outbounds).toContain(chainGroup.tag);
+        expect(chainGroup.outbounds).toEqual([chainedExit.tag]);
+        expect(builder.config.outbounds.find(outbound => outbound.tag === '🚀 节点选择').outbounds).toContain(chainGroup.tag);
+        expect(builder.config.outbound_providers).toBeUndefined();
+        expect(builder.config.outbounds.filter(outbound => outbound.type === 'urltest')).toHaveLength(1);
     });
 
-    it('generates Mihomo dialer-proxy nodes', async () => {
+    it('uses every non-OUT subscription as Mihomo auto selection candidates', async () => {
         mockSubscriptions();
-        const builder = new ClashConfigBuilder(
-            input, [], [], null, 'zh-CN', 'test-agent', false,
-            false, null, null, true, chain
-        );
+        const builder = new ClashConfigBuilder(input, [], [], null, 'zh-CN', 'test-agent', false, false, null, null, true, chain);
         const config = yaml.load(await builder.build());
+        const autoName = builder.t('outboundNames.Auto Select');
+        const auto = config['proxy-groups'].find(group => group.name === autoName);
+        const chainedExit = config.proxies.find(proxy => proxy.name === '[OUT · Exit] Exit Node');
 
-        const entryGroup = config['proxy-groups'].find(group => group.name === '🔗 IN · Entry');
-        const autoGroup = config['proxy-groups'].find(group => group.name === entryGroup.proxies[0]);
-        const chainGroup = config['proxy-groups'].find(group => group.name === '🔗 Entry → Exit');
-        const chainedExit = config.proxies.find(proxy => proxy.name === '[Entry → Exit] Exit Node');
-        const originalExit = config.proxies.find(proxy => proxy.name === 'Exit Node');
-        const nodeSelect = config['proxy-groups'].find(group => group.name === '🚀 节点选择');
-
-        expect(chainedExit['dialer-proxy']).toBe(entryGroup.name);
-        expect(autoGroup.type).toBe('url-test');
-        expect(autoGroup.proxies).toEqual(['Entry Node']);
-        expect(autoGroup.interval).toBe(300);
-        expect(originalExit['dialer-proxy']).toBeUndefined();
-        expect(chainGroup.proxies).toContain(chainedExit.name);
-        expect(nodeSelect.proxies).toContain(chainGroup.name);
+        expect(auto.type).toBe('url-test');
+        expect(auto.proxies).toEqual(['Entry Node', 'Third Node']);
+        expect(chainedExit['dialer-proxy']).toBe(autoName);
+        expect(config.proxies.find(proxy => proxy.name === 'Exit Node')['dialer-proxy']).toBeUndefined();
+        expect(config['proxy-groups'].find(group => group.name === '🔗 OUT · Exit').proxies).toEqual([chainedExit.name]);
+        expect(config['proxy-groups'].find(group => group.name === '🚀 节点选择').proxies).toContain('🔗 OUT · Exit');
+        expect(config['proxy-providers']).toBeUndefined();
+        expect(config['proxy-groups'].filter(group => group.type === 'url-test')).toHaveLength(1);
     });
 
-    it('supports VLESS URI lines as chain sources', async () => {
+    it('supports VLESS URI sources when global auto selection is disabled', async () => {
         const singbox = new SingboxConfigBuilder(
             vlessInput, [], [], null, 'zh-CN', 'test-agent', false,
-            false, null, null, '1.12', true, vlessChain
+            false, null, null, '1.12', false, vlessChain
         );
         await singbox.build();
-        const singboxExit = singbox.config.outbounds.find(outbound => outbound.tag === '[Entry VLESS → Exit VLESS] Exit VLESS');
-        expect(singboxExit.detour).toBe('🔗 IN · Entry VLESS');
+        expect(singbox.config.outbounds.find(outbound => outbound.tag === '[OUT · Exit VLESS] Exit VLESS').detour)
+            .toBe(singbox.t('outboundNames.Auto Select'));
+        expect(singbox.config.outbounds.find(outbound => outbound.type === 'urltest').outbounds).toEqual(['Entry VLESS']);
 
-        const clashBuilder = new ClashConfigBuilder(
-            vlessInput, [], [], null, 'zh-CN', 'test-agent', false,
-            false, null, null, true, vlessChain
-        );
+        const clashBuilder = new ClashConfigBuilder(vlessInput, [], [], null, 'zh-CN', 'test-agent', false, false, null, null, false, vlessChain);
         const clash = yaml.load(await clashBuilder.build());
-        const clashExit = clash.proxies.find(proxy => proxy.name === '[Entry VLESS → Exit VLESS] Exit VLESS');
-        expect(clashExit['dialer-proxy']).toBe('🔗 IN · Entry VLESS');
+        expect(clash.proxies.find(proxy => proxy.name === '[OUT · Exit VLESS] Exit VLESS')['dialer-proxy'])
+            .toBe(clashBuilder.t('outboundNames.Auto Select'));
+        expect(clash['proxy-groups'].find(group => group.type === 'url-test').proxies).toEqual(['Entry VLESS']);
     });
 
-    it('keeps entry auto selection available when global auto selection is disabled', async () => {
-        const builder = new ClashConfigBuilder(
-            vlessInput, [], [], null, 'zh-CN', 'test-agent', false,
-            false, null, null, false, vlessChain
-        );
+    it('includes standalone URI nodes alongside IN subscriptions', async () => {
+        mockSubscriptions();
+        const mixedInput = input + '\n' + vlessInput.split('\n')[0];
+        const builder = new ClashConfigBuilder(mixedInput, [], [], null, 'zh-CN', 'test-agent', false, false, null, null, true,
+            parseChainConfig(rawChain, mixedInput));
         const config = yaml.load(await builder.build());
-        const entryGroup = config['proxy-groups'].find(group => group.name === '🔗 IN · Entry VLESS');
-        const autoGroup = config['proxy-groups'].find(group => group.name === entryGroup.proxies[0]);
-
-        expect(autoGroup.type).toBe('url-test');
-        expect(autoGroup.proxies).toEqual(['Entry VLESS']);
-        expect(config['proxy-groups'].find(group => group.name === builder.t('outboundNames.Auto Select'))).toBeUndefined();
+        expect(config['proxy-groups'].find(group => group.name === builder.t('outboundNames.Auto Select')).proxies)
+            .toEqual(['Entry Node', 'Third Node', 'Entry VLESS']);
     });
 
-    it('generates Surge underlying-proxy policies', async () => {
+    it('generates Surge OUT policies with the shared auto selection group', async () => {
         mockSubscriptions();
         const builder = new SurgeConfigBuilder(input, [], [], null, 'zh-CN', 'test-agent', false, true, chain);
         await builder.build();
+        const autoName = builder.t('outboundNames.Auto Select');
+        expect(builder.config.proxies.find(proxy => proxy.startsWith('[OUT · Exit] Exit Node =')))
+            .toContain('underlying-proxy=' + autoName);
+        expect(builder.config.proxies.find(proxy => proxy.startsWith('Exit Node ='))).not.toContain('underlying-proxy=');
+        expect(builder.config['proxy-groups']).toContain('🔗 OUT · Exit = select, [OUT · Exit] Exit Node');
+        expect(builder.config['proxy-groups']).toContain(autoName + ' = url-test, Entry Node, Third Node, url=http://www.gstatic.com/generate_204, interval=300');
+        expect(builder.config['proxy-groups'].some(group => group.includes('🔗 IN'))).toBe(false);
+    });
 
-        const chainedExit = builder.config.proxies.find(proxy => proxy.startsWith('[Entry → Exit] Exit Node ='));
-        const originalExit = builder.config.proxies.find(proxy => proxy.startsWith('Exit Node ='));
-        const nodeSelect = builder.config['proxy-groups'].find(group => group.startsWith('🚀 节点选择 ='));
+    it('prevents subscription overrides from adding OUT to the chain auto selector', async () => {
+        mockSubscriptions('clash', '\nproxy-groups:\n  - name: ⚡ 自动选择\n    type: url-test\n    proxies: [Exit Node]\n');
+        const builder = new ClashConfigBuilder(input, [], [], null, 'zh-CN', 'test-agent', false, false, null, null, true, chain);
+        const config = yaml.load(await builder.build());
+        const dialer = config.proxies.find(proxy => proxy.name === '[OUT · Exit] Exit Node')['dialer-proxy'];
+        expect(config['proxy-groups'].find(group => group.name === dialer).proxies).toEqual(['Entry Node', 'Third Node']);
+    });
 
-        expect(chainedExit).toContain('underlying-proxy=🔗 IN · Entry');
-        expect(originalExit).not.toContain('underlying-proxy=');
-        expect(builder.config['proxy-groups']).toContain('🔗 Entry → Exit = select, [Entry → Exit] Exit Node');
-        const autoName = `🔗 IN · Entry · ${builder.t('outboundNames.Auto Select')}`;
-        expect(builder.config['proxy-groups']).toContain(`🔗 IN · Entry = select, ${autoName}, Entry Node`);
-        expect(builder.config['proxy-groups']).toContain(`${autoName} = url-test, Entry Node, url=http://www.gstatic.com/generate_204, interval=300`);
-        expect(nodeSelect).toContain('🔗 Entry → Exit');
+    it('rejects OUT-only configurations instead of generating an empty auto selector', async () => {
+        const outOnly = vlessInput.split('\n')[1];
+        const builder = new ClashConfigBuilder(outOnly, [], [], null, 'zh-CN', 'test-agent', false, false, null, null, true,
+            parseChainConfig({ version: 2, exit: { line: 0 } }, outOnly));
+        await expect(builder.build()).rejects.toThrow('supported IN nodes');
     });
 
     it('rejects chain parameters on the Xray URI endpoint', async () => {
-        const app = createApp({
-            kv: new MemoryKVAdapter(),
-            logger: console,
-            config: { configTtlSeconds: 60, shortLinkTtlSeconds: null }
-        });
-        const url = `http://localhost/xray?config=${encodeURIComponent(input)}&chain=${encodeURIComponent(JSON.stringify(chain))}`;
-        const response = await app.request(url);
-
+        const app = createApp({ kv: new MemoryKVAdapter(), logger: console });
+        const response = await app.request('http://localhost/xray?config=' + encodeURIComponent(input) + '&chain=' + encodeURIComponent(JSON.stringify(rawChain)));
         expect(response.status).toBe(400);
         expect(await response.text()).toContain('not supported');
+    });
+
+    it('accepts the OUT-only chain parameter on the conversion endpoint', async () => {
+        mockSubscriptions();
+        const app = createApp({ kv: new MemoryKVAdapter(), logger: console });
+        const params = new URLSearchParams({ config: input, chain: JSON.stringify(rawChain) });
+        const response = await app.request('http://localhost/clash?' + params);
+        expect(response.status).toBe(200);
+        const config = yaml.load(await response.text());
+        const exit = config.proxies.find(proxy => proxy.name === '[OUT · Exit] Exit Node');
+        expect(config['proxy-groups'].find(group => group.name === exit['dialer-proxy']).proxies)
+            .toEqual(['Entry Node', 'Third Node']);
     });
 });

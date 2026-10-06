@@ -21,7 +21,6 @@ export class BaseConfigBuilder {
         this.subscriptionUserinfo = undefined;
         this.chainConfig = chainConfig;
         this.chainSourcesByLine = new Map((chainConfig?.sources || []).map(source => [source.line, source]));
-        this.chainedSourceIds = new Set((chainConfig?.links || []).flatMap(link => [link.entry.id, link.exit.id]));
         this.proxySourceIds = new WeakMap();
         this.sourceItems = new Map();
         this.sourceProxyNames = new Map();
@@ -115,8 +114,8 @@ export class BaseConfigBuilder {
                                 this.subscriptionUserinfo = subscriptionUserinfo;
                             }
 
-                            // If format is compatible with target client, use as provider
-                            if (!this.chainedSourceIds.has(sourceId) && this.isCompatibleProviderFormat(format)) {
+                            // Chain membership must be resolved before OUT nodes can be excluded.
+                            if (!this.chainConfig && this.isCompatibleProviderFormat(format)) {
                                 this.providerUrls.push(originalUrl);
                                 // Content is already fetched; keep node names so country
                                 // groups can be built over provider members later.
@@ -462,49 +461,38 @@ export class BaseConfigBuilder {
     }
 
     addChains() {
-        if (!this.chainConfig?.links?.length) return;
+        const exit = this.chainConfig?.exit;
+        if (!exit) return;
 
-        const entryGroups = new Map();
-        this.chainConfig.links.forEach(link => {
-            if (!entryGroups.has(link.entry.id)) {
-                const members = this.sourceProxyNames.get(link.entry.id) || [];
-                if (members.length === 0) {
-                    throw new InvalidPayloadError(`Chain entry subscription has no supported proxies: ${link.entry.label}`);
-                }
-                const autoGroupName = this.reserveChainName(`🔗 IN · ${link.entry.label} · ${this.t('outboundNames.Auto Select')}`);
-                this.createChainGroup(autoGroupName, members, 'url-test');
-                const groupName = this.reserveChainName(`🔗 IN · ${link.entry.label}`);
-                this.createChainGroup(groupName, [autoGroupName, ...members]);
-                entryGroups.set(link.entry.id, groupName);
+        const exitNames = new Set(this.sourceProxyNames.get(exit.id) || []);
+        if (exitNames.size === 0) {
+            throw new InvalidPayloadError(`Chain OUT source has no supported proxies: ${exit.label}`);
+        }
+        this.chainEntryProxyNames = this.getProxies()
+            .filter(proxy => this.isUsableChainProxy(proxy) && !exitNames.has(this.getProxyName(proxy)))
+            .map(proxy => this.getProxyName(proxy));
+        if (this.chainEntryProxyNames.length === 0) {
+            throw new InvalidPayloadError('Chain requires supported IN nodes outside the OUT source');
+        }
+        this.chainAutoGroupName = this.reserveChainName(this.t('outboundNames.Auto Select'));
+        this.createChainGroup(this.chainAutoGroupName, this.chainEntryProxyNames, 'url-test');
+
+        const chainedNames = [];
+        (this.sourceItems.get(exit.id) || []).forEach(item => {
+            const cloned = deepCopy(item);
+            cloned.tag = this.reserveChainName(`[OUT · ${exit.label}] ${item.tag}`);
+            const converted = this.convertProxy(cloned);
+            const chained = converted && this.applyChainToProxy(converted, this.chainAutoGroupName);
+            if (!chained) return;
+            const added = this.addProxyToConfig(chained);
+            if (added && this.isUsableChainProxy(added)) {
+                const name = this.getProxyName(added);
+                if (name) chainedNames.push(name);
             }
-
-            const exitItems = this.sourceItems.get(link.exit.id) || [];
-            if (exitItems.length === 0) {
-                throw new InvalidPayloadError(`Chain exit subscription has no supported proxies: ${link.exit.label}`);
-            }
-
-            const entryGroupName = entryGroups.get(link.entry.id);
-            const chainedNames = [];
-            exitItems.forEach(item => {
-                const cloned = deepCopy(item);
-                cloned.tag = this.reserveChainName(`[${link.entry.label} → ${link.exit.label}] ${item.tag}`);
-                const converted = this.convertProxy(cloned);
-                const chained = converted && this.applyChainToProxy(converted, entryGroupName);
-                if (!chained) return;
-                const added = this.addProxyToConfig(chained);
-                if (added && this.isUsableChainProxy(added)) {
-                    const name = this.getProxyName(added);
-                    if (name) chainedNames.push(name);
-                }
-            });
-
-            if (chainedNames.length === 0) {
-                throw new InvalidPayloadError(`Chain exit subscription has no supported proxies: ${link.exit.label}`);
-            }
-            const chainGroupName = this.reserveChainName(`🔗 ${link.entry.label} → ${link.exit.label}`);
-            this.createChainGroup(chainGroupName, chainedNames);
-            this.chainGroupNames.push(chainGroupName);
         });
+        const chainGroupName = this.reserveChainName(`🔗 OUT · ${exit.label}`);
+        this.createChainGroup(chainGroupName, chainedNames);
+        this.chainGroupNames.push(chainGroupName);
     }
 
     withChainGroups(options = []) {
@@ -522,7 +510,7 @@ export class BaseConfigBuilder {
         const outbounds = this.getOutboundsList();
         const proxyList = this.originalProxyNames ? [...this.originalProxyNames] : this.getProxyList();
 
-        this.addAutoSelectGroup(proxyList);
+        this.addAutoSelectGroup(this.chainEntryProxyNames || proxyList);
         this.addNodeSelectGroup(proxyList);
         if (this.groupByCountry) {
             this.addCountryGroups();
@@ -533,7 +521,11 @@ export class BaseConfigBuilder {
 
         // Merge user-defined proxy-groups after system groups are created
         if (this.pendingUserProxyGroups && this.pendingUserProxyGroups.length > 0) {
-            this.mergeUserProxyGroups(this.pendingUserProxyGroups);
+            // Subscription overrides must not reintroduce OUT nodes into the chain's dialer.
+            this.mergeUserProxyGroups(this.pendingUserProxyGroups.filter(group => {
+                const name = typeof group === 'string' ? group.split('=')[0].trim() : group?.name;
+                return !this.chainAutoGroupName || name !== this.chainAutoGroupName;
+            }));
         }
     }
 

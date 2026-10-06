@@ -123,17 +123,7 @@ export const Form = (props) => {
               <div class="w-11 h-6 bg-gray-200 peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
             </div>
           </label>
-          <div x-show="chainEnabled" class="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-3 items-end mt-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{t('chainEntry')}</label>
-              <select x-model="chainEntryLine" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
-                <option value="">{t('chainSelect')}</option>
-                <template x-for="source in subscriptionSources()" x-bind:key="source.line">
-                  <option x-bind:value="source.line" x-text="source.label"></option>
-                </template>
-              </select>
-            </div>
-            <i class="fas fa-arrow-right text-gray-400 pb-3 hidden md:block"></i>
+          <div x-show="chainEnabled" class="mt-4">
             <div>
               <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{t('chainExit')}</label>
               <select x-model="chainExitLine" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
@@ -143,6 +133,7 @@ export const Form = (props) => {
                 </template>
               </select>
             </div>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">{t('chainTip')}</p>
           </div>
         </div>
       </div>
@@ -267,29 +258,6 @@ export const Form = (props) => {
               </div>
           </div>
           </div>
-
-  {/* Subconverter External Config */}
-  <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-    <h3 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-2">
-      <i class="fas fa-file-export text-gray-400"></i>
-      {t('subconverterConfigTitle')}
-    </h3>
-    <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">{t('subconverterConfigDesc')}</p>
-    <div class="px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-      <p class="font-mono text-sm text-gray-600 dark:text-gray-400 break-all" x-text="getSubconverterUrl()"></p>
-    </div>
-    <div class="mt-3 flex justify-end">
-      <button
-        type="button"
-        x-on:click="copySubconverterUrl()"
-        class="px-4 py-2 rounded-lg transition-colors font-medium text-sm flex items-center gap-2"
-        x-bind:class="subconverterCopied ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'"
-      >
-        <i class="fas" x-bind:class="subconverterCopied ? 'fa-check' : 'fa-copy'"></i>
-        <span x-text={`subconverterCopied ? '${t('copiedSubconverterUrl')}' : '${t('copySubconverterUrl')}'`}></span>
-      </button>
-    </div>
-  </div>
 
   {/* Base Config */ }
   <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">

@@ -1,7 +1,7 @@
 export const formLogicFn = (t) => {
     window.formData = function () {
         const presetFields = [
-            'input', 'chainEnabled', 'chainEntryLine', 'chainExitLine',
+            'input', 'chainEnabled', 'chainExitLine',
             'selectedRules', 'selectedPredefinedRule', 'groupByCountry', 'includeAutoSelect',
             'enableClashUI', 'externalController', 'externalUiDownloadUrl', 'customUA',
             'configType', 'configEditor', 'currentConfigId'
@@ -78,7 +78,6 @@ export const formLogicFn = (t) => {
         return {
             input: '',
             chainEnabled: false,
-            chainEntryLine: '',
             chainExitLine: '',
             showAdvanced: false,
             // Accordion states for each section (二级手风琴状态)
@@ -91,7 +90,6 @@ export const formLogicFn = (t) => {
             },
             selectedRules: [],
             selectedPredefinedRule: 'balanced',
-            subconverterCopied: false,
             groupByCountry: false,
             includeAutoSelect: true,
             enableClashUI: false,
@@ -154,7 +152,6 @@ export const formLogicFn = (t) => {
                 this.configType = localStorage.getItem('configType') || 'singbox';
                 this.customShortCode = localStorage.getItem('customShortCode') || '';
                 this.chainEnabled = localStorage.getItem('chainEnabled') === 'true';
-                this.chainEntryLine = localStorage.getItem('chainEntryLine') || '';
                 this.chainExitLine = localStorage.getItem('chainExitLine') || '';
                 const initialUrlParams = new URLSearchParams(window.location.search);
                 this.currentConfigId = initialUrlParams.get('configId') || '';
@@ -180,7 +177,6 @@ export const formLogicFn = (t) => {
                 });
                 this.$watch('showAdvanced', val => localStorage.setItem('advancedToggle', val));
                 this.$watch('chainEnabled', val => localStorage.setItem('chainEnabled', val));
-                this.$watch('chainEntryLine', val => localStorage.setItem('chainEntryLine', val));
                 this.$watch('chainExitLine', val => localStorage.setItem('chainExitLine', val));
                 this.$watch('groupByCountry', val => localStorage.setItem('groupByCountry', val));
                 this.$watch('includeAutoSelect', val => localStorage.setItem('includeAutoSelect', val));
@@ -323,72 +319,20 @@ export const formLogicFn = (t) => {
             buildChainConfig() {
                 if (!this.chainEnabled) return null;
                 const sources = this.subscriptionSources();
-                if (this.chainEntryLine === '' || this.chainExitLine === '') {
+                if (this.chainExitLine === '') {
                     alert(window.APP_TRANSLATIONS.chainInvalid);
                     return null;
                 }
-                const entryLine = Number(this.chainEntryLine);
                 const exitLine = Number(this.chainExitLine);
-                const entry = sources.find(source => source.line === entryLine);
                 const exit = sources.find(source => source.line === exitLine);
-                if (!entry || !exit || entry.line === exit.line) {
+                if (!exit) {
                     alert(window.APP_TRANSLATIONS.chainInvalid);
                     return null;
                 }
                 return {
-                    version: 1,
-                    sources: [
-                        { id: 'entry', line: entry.line, label: entry.label },
-                        { id: 'exit', line: exit.line, label: exit.label }
-                    ],
-                    links: [{ entry: 'entry', exit: 'exit' }]
+                    version: 2,
+                    exit: { line: exit.line, label: exit.label }
                 };
-            },
-
-            getSubconverterUrl() {
-                const origin = window.location.origin;
-                const params = new URLSearchParams();
-
-                // Use preset name directly if a predefined rule set is selected
-                if (this.selectedPredefinedRule && this.selectedPredefinedRule !== 'custom') {
-                    params.append('selectedRules', this.selectedPredefinedRule);
-                } else if (this.selectedPredefinedRule === 'custom') {
-                    params.append('selectedRules', JSON.stringify(this.selectedRules));
-                }
-
-                // Include customRules when available (best-effort; may make URL long)
-                try {
-                    const customRulesInput = document.querySelector('input[name="customRules"]');
-                    const customRules = customRulesInput && customRulesInput.value ? JSON.parse(customRulesInput.value) : [];
-                    if (Array.isArray(customRules) && customRules.length > 0) {
-                        params.append('customRules', JSON.stringify(customRules));
-                    }
-                } catch { }
-
-                if (!this.includeAutoSelect) {
-                    params.append('include_auto_select', 'false');
-                }
-
-                if (this.groupByCountry) {
-                    params.append('group_by_country', 'true');
-                }
-
-                // Include lang parameter so subconverter gets correct group names
-                const appLang = window.APP_LANG || 'zh-CN';
-                if (appLang !== 'zh-CN') {
-                    params.append('lang', appLang);
-                }
-
-                const queryString = params.toString();
-                return origin + '/subconverter' + (queryString ? '?' + queryString : '');
-            },
-
-            copySubconverterUrl() {
-                const url = this.getSubconverterUrl();
-                navigator.clipboard.writeText(url).then(() => {
-                    this.subconverterCopied = true;
-                    setTimeout(() => this.subconverterCopied = false, 2000);
-                }).catch(() => {});
             },
 
             resetConfigValidation() {
@@ -502,7 +446,6 @@ export const formLogicFn = (t) => {
                     this.shortenedLinks = null;
                     this.customShortCode = '';
                     this.chainEnabled = false;
-                    this.chainEntryLine = '';
                     this.chainExitLine = '';
                     // Also clear from localStorage
                     localStorage.removeItem('customShortCode');
@@ -648,7 +591,6 @@ export const formLogicFn = (t) => {
             // Handle input change with debounce
             handleInputChange(val) {
                 const validLines = new Set(this.subscriptionSources().map(source => String(source.line)));
-                if (this.chainEntryLine !== '' && !validLines.has(String(this.chainEntryLine))) this.chainEntryLine = '';
                 if (this.chainExitLine !== '' && !validLines.has(String(this.chainExitLine))) this.chainExitLine = '';
                 // Clear previous timer
                 if (this.parseDebounceTimer) {
@@ -758,11 +700,11 @@ export const formLogicFn = (t) => {
                     try {
                         const parsed = JSON.parse(chain);
                         const link = parsed?.links?.[0];
-                        const entry = parsed?.sources?.find(source => source.id === link?.entry);
-                        const exit = parsed?.sources?.find(source => source.id === link?.exit);
-                        if (entry && exit) {
+                        const exit = parsed?.version === 2
+                            ? parsed.exit
+                            : parsed?.sources?.find(source => source.id === link?.exit);
+                        if (exit) {
                             this.chainEnabled = true;
-                            this.chainEntryLine = String(entry.line);
                             this.chainExitLine = String(exit.line);
                         }
                     } catch { }

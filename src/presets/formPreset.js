@@ -4,7 +4,6 @@ import { InvalidPayloadError } from '../services/errors.js';
 const DEFAULTS = {
     input: '',
     chainEnabled: false,
-    chainEntryLine: '',
     chainExitLine: '',
     selectedRules: [],
     selectedPredefinedRule: 'custom',
@@ -46,16 +45,12 @@ export function normalizeFormPreset(content) {
         throw new InvalidPayloadError('Invalid preset settings');
     }
     if (preset.chainEnabled) {
-        if (preset.chainEntryLine === '' || preset.chainExitLine === '') {
-            throw new InvalidPayloadError('Preset chain sources must be selected');
+        if (preset.chainExitLine === '') {
+            throw new InvalidPayloadError('Preset chain OUT source must be selected');
         }
         parseChainConfig({
-            version: 1,
-            sources: [
-                { id: 'entry', line: Number(preset.chainEntryLine) },
-                { id: 'exit', line: Number(preset.chainExitLine) }
-            ],
-            links: [{ entry: 'entry', exit: 'exit' }]
+            version: 2,
+            exit: { line: Number(preset.chainExitLine) }
         }, preset.input);
     }
     return preset;
