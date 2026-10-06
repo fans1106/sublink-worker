@@ -1,5 +1,11 @@
 export const formLogicFn = (t) => {
     window.formData = function () {
+        const presetFields = [
+            'input', 'chainEnabled', 'chainEntryLine', 'chainExitLine',
+            'selectedRules', 'selectedPredefinedRule', 'groupByCountry', 'includeAutoSelect',
+            'enableClashUI', 'externalController', 'externalUiDownloadUrl', 'customUA',
+            'configType', 'configEditor', 'currentConfigId'
+        ];
         // Inline parseSurgeConfigInput to make it available in toString()
         const parseSurgeValue = (rawValue = '') => {
             const trimmed = rawValue.trim();
@@ -109,6 +115,11 @@ export const formLogicFn = (t) => {
             customShortCode: '',
             parsingUrl: false,
             parseDebounceTimer: null,
+            presetId: '',
+            savingPreset: false,
+            importingPreset: false,
+            presetMessage: '',
+            presetError: false,
             // These will be populated from window.APP_TRANSLATIONS
             processingText: '',
             convertText: '',
@@ -147,6 +158,7 @@ export const formLogicFn = (t) => {
                 this.chainExitLine = localStorage.getItem('chainExitLine') || '';
                 const initialUrlParams = new URLSearchParams(window.location.search);
                 this.currentConfigId = initialUrlParams.get('configId') || '';
+                this.presetId = initialUrlParams.get('presetId') || '';
 
                 // Load accordion states
                 const savedAccordion = localStorage.getItem('accordionSections');
@@ -186,6 +198,89 @@ export const formLogicFn = (t) => {
                 });
                 this.$watch('customShortCode', val => localStorage.setItem('customShortCode', val));
                 this.$watch('accordionSections', val => localStorage.setItem('accordionSections', JSON.stringify(val)), { deep: true });
+                if (this.presetId) this.$nextTick(() => this.importPreset());
+            },
+
+            getFormPreset() {
+                const customRulesInput = document.querySelector('input[name="customRules"]');
+                const customRules = customRulesInput?.value ? JSON.parse(customRulesInput.value) : [];
+                return {
+                    version: 1,
+                    ...Object.fromEntries(presetFields.map(key => [key, this[key]])),
+                    customRules
+                };
+            },
+
+            updatePresetIdInUrl() {
+                const url = new URL(window.location.href);
+                url.searchParams.set('presetId', this.presetId);
+                window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+            },
+
+            async savePreset() {
+                if (this.savingPreset || this.importingPreset) return;
+                if (this.chainEnabled && !this.buildChainConfig()) return;
+                this.savingPreset = true;
+                this.presetMessage = '';
+                this.presetError = false;
+                try {
+                    if (this.configEditor.trim() && !await this.saveBaseConfig(false)) {
+                        throw new Error(window.APP_TRANSLATIONS.configSaveFailed);
+                    }
+                    const response = await fetch('/presets', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(this.getFormPreset())
+                    });
+                    if (!response.ok) throw new Error(await response.text());
+                    const { id } = await response.json();
+                    this.presetId = id;
+                    this.updatePresetIdInUrl();
+                    this.presetMessage = `${window.APP_TRANSLATIONS.presetSaved} ${id}`;
+                } catch (error) {
+                    this.presetError = true;
+                    this.presetMessage = `${window.APP_TRANSLATIONS.presetFailed}: ${error.message}`;
+                } finally {
+                    this.savingPreset = false;
+                }
+            },
+
+            async importPreset() {
+                if (this.importingPreset || this.savingPreset) return;
+                this.importingPreset = true;
+                this.presetMessage = '';
+                this.presetError = false;
+                try {
+                    const id = this.presetId.trim();
+                    const response = await fetch(`/presets/${encodeURIComponent(id)}`);
+                    if (!response.ok) throw new Error(await response.text());
+                    const preset = await response.json();
+                    clearTimeout(this.parseDebounceTimer);
+                    this.parsingUrl = true;
+                    for (const key of presetFields) this[key] = preset[key];
+                    this.updateConfigIdInUrl(this.currentConfigId);
+                    // The editor snapshot can outlive its separately stored base config.
+                    if (this.configEditor.trim() && !await this.saveBaseConfig(false)) {
+                        throw new Error(window.APP_TRANSLATIONS.configSaveFailed);
+                    }
+                    this.generatedLinks = null;
+                    this.shortenedLinks = null;
+                    this.showAdvanced = true;
+                    await this.$nextTick(() => {
+                        window.dispatchEvent(new CustomEvent('restore-custom-rules', {
+                            detail: { rules: preset.customRules }
+                        }));
+                    });
+                    this.presetId = id;
+                    this.updatePresetIdInUrl();
+                    this.presetMessage = window.APP_TRANSLATIONS.presetImported;
+                } catch (error) {
+                    this.presetError = true;
+                    this.presetMessage = `${window.APP_TRANSLATIONS.presetFailed}: ${error.message}`;
+                } finally {
+                    this.parsingUrl = false;
+                    this.importingPreset = false;
+                }
             },
 
             toggleAccordion(section) {
@@ -301,7 +396,7 @@ export const formLogicFn = (t) => {
                 this.configValidationMessage = '';
             },
 
-            async saveBaseConfig() {
+            async saveBaseConfig(notify = true) {
                 const content = (this.configEditor || '').trim();
                 if (!content) {
                     alert(this.configContentRequiredText || window.APP_TRANSLATIONS.configContentRequired);
@@ -315,8 +410,8 @@ export const formLogicFn = (t) => {
                         payloadContent = JSON.stringify(configObject);
                     } catch (parseError) {
                         const prefix = window.APP_TRANSLATIONS.configValidationError || 'Config validation error:';
-                        alert(`${prefix} ${parseError?.message || ''}`.trim());
-                        return;
+                        if (notify) alert(`${prefix} ${parseError?.message || ''}`.trim());
+                        return null;
                     }
                 }
 
@@ -344,11 +439,13 @@ export const formLogicFn = (t) => {
                     this.updateConfigIdInUrl(configId);
 
                     const successMessage = window.APP_TRANSLATIONS.saveConfigSuccess || 'Configuration saved successfully!';
-                    alert(`${successMessage}\nID: ${configId}`);
+                    if (notify) alert(`${successMessage}\nID: ${configId}`);
+                    return configId;
                 } catch (error) {
                     console.error('Failed to save base config:', error);
                     const errorPrefix = this.configSaveFailedText || window.APP_TRANSLATIONS.configSaveFailed || 'Failed to save configuration';
-                    alert(`${errorPrefix}: ${error?.message || 'Unknown error'}`);
+                    if (notify) alert(`${errorPrefix}: ${error?.message || 'Unknown error'}`);
+                    return null;
                 } finally {
                     this.savingConfig = false;
                 }

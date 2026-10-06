@@ -471,8 +471,10 @@ export class BaseConfigBuilder {
                 if (members.length === 0) {
                     throw new InvalidPayloadError(`Chain entry subscription has no supported proxies: ${link.entry.label}`);
                 }
+                const autoGroupName = this.reserveChainName(`🔗 IN · ${link.entry.label} · ${this.t('outboundNames.Auto Select')}`);
+                this.createChainGroup(autoGroupName, members, 'url-test');
                 const groupName = this.reserveChainName(`🔗 IN · ${link.entry.label}`);
-                this.createChainGroup(groupName, members);
+                this.createChainGroup(groupName, [autoGroupName, ...members]);
                 entryGroups.set(link.entry.id, groupName);
             }
 

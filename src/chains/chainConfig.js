@@ -84,7 +84,7 @@ export function parseChainConfig(raw, inputString) {
     const links = parsed.links.map((link, index) => {
         const entry = sourceMap.get(link?.entry);
         const exit = sourceMap.get(link?.exit);
-        if (!entry || !exit || entry.id === exit.id) {
+        if (!entry || !exit || entry.id === exit.id || entry.line === exit.line) {
             throw new InvalidPayloadError(`Invalid chain link at index ${index}`);
         }
 

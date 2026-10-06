@@ -38,7 +38,7 @@ export class ConfigStorageService {
         // Validate string is JSON before storing
         JSON.parse(configString);
 
-        const ttlSeconds = this.options.configTtlSeconds;
+        const ttlSeconds = type === 'preset' ? undefined : this.options.configTtlSeconds;
         const putOptions = ttlSeconds ? { expirationTtl: ttlSeconds } : undefined;
         await kv.put(configId, configString, putOptions);
         return configId;

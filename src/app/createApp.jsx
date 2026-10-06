@@ -14,10 +14,11 @@ import { encodeBase64, tryDecodeSubscriptionLines } from '../utils.js';
 import { APP_NAME, APP_SUBTITLE } from '../constants.js';
 import { ShortLinkService } from '../services/shortLinkService.js';
 import { ConfigStorageService } from '../services/configStorageService.js';
-import { ServiceError, MissingDependencyError } from '../services/errors.js';
+import { ServiceError, MissingDependencyError, InvalidPayloadError } from '../services/errors.js';
 import { normalizeRuntime } from '../runtime/runtimeConfig.js';
 import { PREDEFINED_RULE_SETS, SING_BOX_CONFIG, SING_BOX_CONFIG_V1_11, generateSubconverterConfig } from '../config/index.js';
 import { parseChainConfig } from '../chains/chainConfig.js';
+import { normalizeFormPreset } from '../presets/formPreset.js';
 
 const DEFAULT_USER_AGENT = 'curl/7.74.0';
 
@@ -371,6 +372,34 @@ export function createApp(bindings = {}) {
             if (error instanceof SyntaxError) {
                 return c.text(`Invalid format: ${error.message}`, 400);
             }
+            return handleError(c, error, runtime.logger);
+        }
+    });
+
+    app.post('/presets', async (c) => {
+        try {
+            const preset = normalizeFormPreset(await c.req.json());
+            const storage = requireConfigStorage(services.configStorage);
+            const id = await storage.saveConfig('preset', preset);
+            return c.json({ id });
+        } catch (error) {
+            if (error instanceof SyntaxError) return c.text('Invalid preset JSON', 400);
+            return handleError(c, error, runtime.logger);
+        }
+    });
+
+    app.get('/presets/:id', async (c) => {
+        try {
+            const id = c.req.param('id');
+            if (!/^preset_[A-Za-z0-9]{8}$/.test(id)) {
+                throw new InvalidPayloadError('Invalid preset ID');
+            }
+            const storage = requireConfigStorage(services.configStorage);
+            const preset = await storage.getConfigById(id);
+            c.header('Cache-Control', 'no-store');
+            if (!preset) return c.text('Preset not found', 404);
+            return c.json(normalizeFormPreset(preset));
+        } catch (error) {
             return handleError(c, error, runtime.logger);
         }
     });

@@ -201,8 +201,13 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
         return this.hasOutboundTag(name);
     }
 
-    createChainGroup(name, members) {
-        this.config.outbounds.push({ type: 'selector', tag: name, outbounds: uniqueNames(members) });
+    createChainGroup(name, members, type = 'select') {
+        this.config.outbounds.push({
+            type: type === 'url-test' ? 'urltest' : 'selector',
+            tag: name,
+            outbounds: uniqueNames(members),
+            ...(type === 'url-test' ? { url: 'https://www.gstatic.com/generate_204', interval: '5m', tolerance: 50 } : {})
+        });
     }
 
     applyChainToProxy(proxy, entryGroupName) {

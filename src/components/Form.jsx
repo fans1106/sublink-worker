@@ -35,7 +35,10 @@ export const Form = (props) => {
     optional: t('optional'),
     customShortCodePlaceholder: t('customShortCodePlaceholder'),
     showFullLinks: t('showFullLinks'),
-    chainInvalid: t('chainInvalid')
+    chainInvalid: t('chainInvalid'),
+    presetSaved: t('presetSaved'),
+    presetImported: t('presetImported'),
+    presetFailed: t('presetFailed')
   };
 
   const scriptContent = `
@@ -49,6 +52,21 @@ export const Form = (props) => {
   return (
     <div x-data="formData()" x-init="init()" class="max-w-4xl mx-auto">
       <form {...{'x-on:submit.prevent': 'submitForm'}} class="space-y-8">
+
+      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <label for="presetId" class="block font-medium text-gray-700 dark:text-gray-300 mb-3">{t('formPreset')}</label>
+        <div class="flex flex-col sm:flex-row gap-3">
+          <input id="presetId" type="text" x-model="presetId" placeholder={t('presetIdPlaceholder')} class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+          <button type="button" x-on:click="importPreset()" x-bind:disabled="!presetId.trim() || savingPreset || importingPreset" class="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-50">
+            <i class="fas fa-download mr-2" x-bind:class="importingPreset ? 'fa-spinner fa-spin' : 'fa-download'"></i>{t('importPreset')}
+          </button>
+          <button type="button" x-on:click="savePreset()" x-bind:disabled="!input.trim() || savingPreset || importingPreset" class="px-4 py-2 rounded-lg bg-primary-600 text-white disabled:opacity-50">
+            <i class="fas fa-save mr-2" x-bind:class="savingPreset ? 'fa-spinner fa-spin' : 'fa-save'"></i>{t('savePreset')}
+          </button>
+        </div>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-3">{t('presetTip')}</p>
+        <p x-cloak x-show="presetMessage" x-text="presetMessage" role="status" class="text-sm mt-2 break-all" x-bind:class="presetError ? 'text-red-500' : 'text-green-600 dark:text-green-400'"></p>
+      </div>
 
       {/* Input Section */}
       <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-all duration-300 hover:shadow-md group">

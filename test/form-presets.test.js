@@ -1,0 +1,171 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createApp } from '../src/app/createApp.jsx';
+import { MemoryKVAdapter } from '../src/adapters/kv/memoryKv.js';
+import { normalizeFormPreset } from '../src/presets/formPreset.js';
+import { formLogicFn } from '../src/components/formLogic.js';
+
+const input = [
+    'vless://11111111-1111-1111-1111-111111111111@entry.example:443?security=tls#Entry',
+    'trojan://secret@exit.example:443?security=tls#Exit'
+].join('\n');
+
+const preset = {
+    version: 1,
+    input,
+    chainEnabled: true,
+    chainEntryLine: '0',
+    chainExitLine: '1',
+    selectedPredefinedRule: 'custom',
+    selectedRules: ['Google'],
+    customRules: [{ name: 'Work', domain_suffix: ['example.com'] }],
+    groupByCountry: true,
+    includeAutoSelect: false,
+    enableClashUI: true,
+    externalController: '127.0.0.1:9090',
+    externalUiDownloadUrl: 'https://example.com/ui.zip',
+    customUA: 'test-agent',
+    configType: 'singbox',
+    configEditor: '{"log":{"level":"warn"}}',
+    currentConfigId: ''
+};
+
+const createTestApp = (kv = new MemoryKVAdapter(), ttl = null) => createApp({
+    kv, logger: console, config: { configTtlSeconds: ttl }
+});
+
+const postPreset = (app, content = preset) => app.request('http://localhost/presets', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(content)
+});
+
+function browserForm(app) {
+    const customRulesInput = { value: '[]' };
+    const window = {
+        APP_TRANSLATIONS: {},
+        location: { href: 'http://localhost/?configId=singbox_stale', search: '?configId=singbox_stale' },
+        history: { replaceState: vi.fn() },
+        dispatchEvent: vi.fn(event => { customRulesInput.value = JSON.stringify(event.detail.rules); })
+    };
+    const fetch = vi.fn((url, options) => app.request(`http://localhost${url}`, options));
+    const document = { querySelector: () => customRulesInput };
+    const CustomEvent = function (type, options) { this.type = type; this.detail = options.detail; };
+    const data = new Function('window', 'document', 'fetch', 'CustomEvent',
+        `(${formLogicFn.toString()})(); return window.formData();`)(window, document, fetch, CustomEvent);
+    data.$nextTick = async callback => callback();
+    return { data, window, customRulesInput, fetch };
+}
+
+describe('form presets', () => {
+    it('stores and retrieves the complete form without a TTL', async () => {
+        const kv = new MemoryKVAdapter();
+        const put = vi.spyOn(kv, 'put');
+        const app = createTestApp(kv, 60);
+        const saved = await postPreset(app);
+        expect(saved.status).toBe(200);
+        const { id } = await saved.json();
+        expect(id).toMatch(/^preset_[A-Za-z0-9]{8}$/);
+        expect(put).toHaveBeenCalledWith(id, JSON.stringify(normalizeFormPreset(preset)), undefined);
+        const response = await app.request(`http://localhost/presets/${id}`);
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual(preset);
+        expect(response.headers.get('cache-control')).toBe('no-store');
+        await kv.delete(id);
+    });
+
+    it('keeps presets after the configured base config TTL expires', async () => {
+        vi.useFakeTimers();
+        try {
+            const kv = new MemoryKVAdapter();
+            const app = createTestApp(kv, 60);
+            const saved = await postPreset(app);
+            const { id } = await saved.json();
+            const baseConfig = await app.request('http://localhost/config', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'singbox', content: { log: { level: 'warn' } } })
+            });
+            expect(baseConfig.status).toBe(200);
+            const configId = await baseConfig.text();
+            expect(await kv.get(configId)).not.toBeNull();
+
+            await vi.advanceTimersByTimeAsync(61000);
+
+            expect(await kv.get(configId)).toBeNull();
+            const response = await app.request(`http://localhost/presets/${id}`);
+            expect(response.status).toBe(200);
+            expect(await response.json()).toEqual(preset);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('validates payloads and chain sources before saving', async () => {
+        const app = createTestApp();
+        for (const content of [null, { version: 2 }, { ...preset, input: '' },
+            { ...preset, chainExitLine: '0' }, { ...preset, chainEntryLine: '99' },
+            { ...preset, includeAutoSelect: 'false' }, { ...preset, selectedRules: [1] },
+            { ...preset, input: 'a'.repeat(256 * 1024) }]) {
+            expect((await postPreset(app, content)).status).toBe(400);
+        }
+        expect((await app.request('http://localhost/presets', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{'
+        })).status).toBe(400);
+    });
+
+    it('returns missing, invalid and unavailable storage errors without reading other config IDs', async () => {
+        const kv = new MemoryKVAdapter();
+        const get = vi.spyOn(kv, 'get');
+        const app = createTestApp(kv);
+        expect((await app.request('http://localhost/presets/preset_12345678')).status).toBe(404);
+        get.mockClear();
+        expect((await app.request('http://localhost/presets/singbox_12345678')).status).toBe(400);
+        expect(get).not.toHaveBeenCalled();
+        const noStorage = createTestApp(null);
+        expect((await postPreset(noStorage)).status).toBe(501);
+        expect((await noStorage.request('http://localhost/presets/preset_12345678')).status).toBe(501);
+    });
+
+    it('saves and restores the browser form, including custom rules and the base config snapshot', async () => {
+        const kv = new MemoryKVAdapter();
+        const app = createTestApp(kv);
+        const source = browserForm(app);
+        Object.assign(source.data, preset);
+        source.customRulesInput.value = JSON.stringify(preset.customRules);
+        await source.data.savePreset();
+        expect(source.data.presetError).toBe(false);
+        expect(source.data.presetId).toMatch(/^preset_/);
+
+        const restored = browserForm(app);
+        restored.data.presetId = source.data.presetId;
+        await restored.data.importPreset();
+        expect(restored.data.presetError).toBe(false);
+        expect(restored.data.getFormPreset()).toEqual({
+            ...preset, currentConfigId: restored.data.currentConfigId
+        });
+        expect(restored.data.currentConfigId).toMatch(/^singbox_/);
+        expect(restored.data.currentConfigId).not.toBe(source.data.currentConfigId);
+        expect(JSON.parse(await kv.get(restored.data.currentConfigId))).toEqual({ log: { level: 'warn' } });
+        expect(restored.window.dispatchEvent).toHaveBeenCalledOnce();
+        expect(restored.window.history.replaceState.mock.calls.at(-1)[2]).toContain(`presetId=${source.data.presetId}`);
+    });
+
+    it('restores empty custom rules and clears an unrelated active base config', async () => {
+        const app = createTestApp();
+        const saved = await postPreset(app, { version: 1, input });
+        const { id } = await saved.json();
+        const restored = browserForm(app);
+        restored.customRulesInput.value = JSON.stringify(preset.customRules);
+        restored.data.currentConfigId = 'singbox_stale';
+        restored.data.chainEnabled = true;
+        restored.data.presetId = id;
+        await restored.data.importPreset();
+        expect(restored.data.presetError).toBe(false);
+        expect(restored.data.chainEnabled).toBe(false);
+        expect(restored.data.currentConfigId).toBe('');
+        expect(restored.data.getFormPreset().customRules).toEqual([]);
+        expect(restored.window.history.replaceState.mock.calls[0][2]).not.toContain('configId');
+    });
+
+    it('keeps unrelated browser state out of stored presets', () => {
+        const normalized = normalizeFormPreset({ ...preset, loading: true, generatedLinks: { clash: 'old' } });
+        expect(normalized).toEqual(preset);
+    });
+});

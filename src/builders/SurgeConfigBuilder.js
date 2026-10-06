@@ -162,9 +162,12 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
         return this.hasProxyGroup(name);
     }
 
-    createChainGroup(name, members) {
+    createChainGroup(name, members, type = 'select') {
         this.config['proxy-groups'] = this.config['proxy-groups'] || [];
-        this.config['proxy-groups'].push(this.createProxyGroup(name, 'select', members));
+        this.config['proxy-groups'].push(this.createProxyGroup(
+            name, type, members,
+            type === 'url-test' ? ', url=http://www.gstatic.com/generate_204, interval=300' : ''
+        ));
     }
 
     applyChainToProxy(proxy, entryGroupName) {

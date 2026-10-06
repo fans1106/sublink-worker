@@ -90,12 +90,16 @@ describe('subscription chain proxy', () => {
         await builder.build();
 
         const entryGroup = builder.config.outbounds.find(outbound => outbound.tag === '🔗 IN · Entry');
+        const autoGroup = builder.config.outbounds.find(outbound => outbound.tag === entryGroup.outbounds[0]);
         const chainGroup = builder.config.outbounds.find(outbound => outbound.tag === '🔗 Entry → Exit');
         const chainedExit = builder.config.outbounds.find(outbound => outbound.tag === '[Entry → Exit] Exit Node');
         const originalExit = builder.config.outbounds.find(outbound => outbound.tag === 'Exit Node');
         const nodeSelect = builder.config.outbounds.find(outbound => outbound.tag === '🚀 节点选择');
 
         expect(entryGroup.outbounds).toContain('Entry Node');
+        expect(autoGroup.type).toBe('urltest');
+        expect(autoGroup.outbounds).toEqual(['Entry Node']);
+        expect(autoGroup.url).toBe('https://www.gstatic.com/generate_204');
         expect(chainedExit.detour).toBe(entryGroup.tag);
         expect(originalExit.detour).toBeUndefined();
         expect(chainGroup.outbounds).toContain(chainedExit.tag);
@@ -111,12 +115,16 @@ describe('subscription chain proxy', () => {
         const config = yaml.load(await builder.build());
 
         const entryGroup = config['proxy-groups'].find(group => group.name === '🔗 IN · Entry');
+        const autoGroup = config['proxy-groups'].find(group => group.name === entryGroup.proxies[0]);
         const chainGroup = config['proxy-groups'].find(group => group.name === '🔗 Entry → Exit');
         const chainedExit = config.proxies.find(proxy => proxy.name === '[Entry → Exit] Exit Node');
         const originalExit = config.proxies.find(proxy => proxy.name === 'Exit Node');
         const nodeSelect = config['proxy-groups'].find(group => group.name === '🚀 节点选择');
 
         expect(chainedExit['dialer-proxy']).toBe(entryGroup.name);
+        expect(autoGroup.type).toBe('url-test');
+        expect(autoGroup.proxies).toEqual(['Entry Node']);
+        expect(autoGroup.interval).toBe(300);
         expect(originalExit['dialer-proxy']).toBeUndefined();
         expect(chainGroup.proxies).toContain(chainedExit.name);
         expect(nodeSelect.proxies).toContain(chainGroup.name);
@@ -140,6 +148,20 @@ describe('subscription chain proxy', () => {
         expect(clashExit['dialer-proxy']).toBe('🔗 IN · Entry VLESS');
     });
 
+    it('keeps entry auto selection available when global auto selection is disabled', async () => {
+        const builder = new ClashConfigBuilder(
+            vlessInput, [], [], null, 'zh-CN', 'test-agent', false,
+            false, null, null, false, vlessChain
+        );
+        const config = yaml.load(await builder.build());
+        const entryGroup = config['proxy-groups'].find(group => group.name === '🔗 IN · Entry VLESS');
+        const autoGroup = config['proxy-groups'].find(group => group.name === entryGroup.proxies[0]);
+
+        expect(autoGroup.type).toBe('url-test');
+        expect(autoGroup.proxies).toEqual(['Entry VLESS']);
+        expect(config['proxy-groups'].find(group => group.name === builder.t('outboundNames.Auto Select'))).toBeUndefined();
+    });
+
     it('generates Surge underlying-proxy policies', async () => {
         mockSubscriptions();
         const builder = new SurgeConfigBuilder(input, [], [], null, 'zh-CN', 'test-agent', false, true, chain);
@@ -152,6 +174,9 @@ describe('subscription chain proxy', () => {
         expect(chainedExit).toContain('underlying-proxy=🔗 IN · Entry');
         expect(originalExit).not.toContain('underlying-proxy=');
         expect(builder.config['proxy-groups']).toContain('🔗 Entry → Exit = select, [Entry → Exit] Exit Node');
+        const autoName = `🔗 IN · Entry · ${builder.t('outboundNames.Auto Select')}`;
+        expect(builder.config['proxy-groups']).toContain(`🔗 IN · Entry = select, ${autoName}, Entry Node`);
+        expect(builder.config['proxy-groups']).toContain(`${autoName} = url-test, Entry Node, url=http://www.gstatic.com/generate_204, interval=300`);
         expect(nodeSelect).toContain('🔗 Entry → Exit');
     });
 
