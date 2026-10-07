@@ -67,10 +67,10 @@ describe('OUT source chain proxy', () => {
         await builder.build();
         const autoName = builder.t('outboundNames.Auto Select');
         const auto = builder.config.outbounds.find(outbound => outbound.tag === autoName);
-        const entry = builder.config.outbounds.find(outbound => outbound.tag === '🔗 IN');
-        const chainedExit = builder.config.outbounds.find(outbound => outbound.tag === '[OUT · Exit] Exit Node');
+        const entry = builder.config.outbounds.find(outbound => outbound.tag === '入口节点');
+        const chainedExit = builder.config.outbounds.find(outbound => outbound.tag === '[链式代理] Exit Node');
         const originalExit = builder.config.outbounds.find(outbound => outbound.tag === 'Exit Node');
-        const chainGroup = builder.config.outbounds.find(outbound => outbound.tag === '🔗 OUT · Exit');
+        const chainGroup = builder.config.outbounds.find(outbound => outbound.tag === '落地节点');
 
         expect(auto.type).toBe('urltest');
         expect(auto.outbounds).toEqual(['Entry Node', 'Third Node']);
@@ -90,8 +90,8 @@ describe('OUT source chain proxy', () => {
         const config = yaml.load(await builder.build());
         const autoName = builder.t('outboundNames.Auto Select');
         const auto = config['proxy-groups'].find(group => group.name === autoName);
-        const entry = config['proxy-groups'].find(group => group.name === '🔗 IN');
-        const chainedExit = config.proxies.find(proxy => proxy.name === '[OUT · Exit] Exit Node');
+        const entry = config['proxy-groups'].find(group => group.name === '入口节点');
+        const chainedExit = config.proxies.find(proxy => proxy.name === '[链式代理] Exit Node');
 
         expect(auto.type).toBe('url-test');
         expect(auto.proxies).toEqual(['Entry Node', 'Third Node']);
@@ -99,8 +99,8 @@ describe('OUT source chain proxy', () => {
         expect(entry.proxies).toEqual(['Entry Node', 'Third Node', autoName]);
         expect(chainedExit['dialer-proxy']).toBe(entry.name);
         expect(config.proxies.find(proxy => proxy.name === 'Exit Node')['dialer-proxy']).toBeUndefined();
-        expect(config['proxy-groups'].find(group => group.name === '🔗 OUT · Exit').proxies).toEqual([chainedExit.name]);
-        expect(config['proxy-groups'].find(group => group.name === '🚀 节点选择').proxies).toContain('🔗 OUT · Exit');
+        expect(config['proxy-groups'].find(group => group.name === '落地节点').proxies).toEqual([chainedExit.name]);
+        expect(config['proxy-groups'].find(group => group.name === '🚀 节点选择').proxies).toContain('落地节点');
         expect(config['proxy-providers']).toBeUndefined();
         expect(config['proxy-groups'].filter(group => group.type === 'url-test')).toHaveLength(1);
     });
@@ -111,17 +111,17 @@ describe('OUT source chain proxy', () => {
             false, null, null, '1.12', false, vlessChain
         );
         await singbox.build();
-        expect(singbox.config.outbounds.find(outbound => outbound.tag === '[OUT · Exit VLESS] Exit VLESS').detour)
-            .toBe('🔗 IN');
-        expect(singbox.config.outbounds.find(outbound => outbound.tag === '🔗 IN').outbounds)
+        expect(singbox.config.outbounds.find(outbound => outbound.tag === '[链式代理] Exit VLESS').detour)
+            .toBe('入口节点');
+        expect(singbox.config.outbounds.find(outbound => outbound.tag === '入口节点').outbounds)
             .toEqual(['Entry VLESS', singbox.t('outboundNames.Auto Select')]);
         expect(singbox.config.outbounds.find(outbound => outbound.type === 'urltest').outbounds).toEqual(['Entry VLESS']);
 
         const clashBuilder = new ClashConfigBuilder(vlessInput, [], [], null, 'zh-CN', 'test-agent', false, false, null, null, false, vlessChain);
         const clash = yaml.load(await clashBuilder.build());
-        expect(clash.proxies.find(proxy => proxy.name === '[OUT · Exit VLESS] Exit VLESS')['dialer-proxy'])
-            .toBe('🔗 IN');
-        expect(clash['proxy-groups'].find(group => group.name === '🔗 IN').proxies)
+        expect(clash.proxies.find(proxy => proxy.name === '[链式代理] Exit VLESS')['dialer-proxy'])
+            .toBe('入口节点');
+        expect(clash['proxy-groups'].find(group => group.name === '入口节点').proxies)
             .toEqual(['Entry VLESS', clashBuilder.t('outboundNames.Auto Select')]);
         expect(clash['proxy-groups'].find(group => group.type === 'url-test').proxies).toEqual(['Entry VLESS']);
     });
@@ -134,7 +134,7 @@ describe('OUT source chain proxy', () => {
         const config = yaml.load(await builder.build());
         expect(config['proxy-groups'].find(group => group.name === builder.t('outboundNames.Auto Select')).proxies)
             .toEqual(['Entry Node', 'Third Node', 'Entry VLESS']);
-        expect(config['proxy-groups'].find(group => group.name === '🔗 IN').proxies)
+        expect(config['proxy-groups'].find(group => group.name === '入口节点').proxies)
             .toEqual(['Entry Node', 'Third Node', 'Entry VLESS', builder.t('outboundNames.Auto Select')]);
     });
 
@@ -143,19 +143,19 @@ describe('OUT source chain proxy', () => {
         const builder = new SurgeConfigBuilder(input, [], [], null, 'zh-CN', 'test-agent', false, true, chain);
         await builder.build();
         const autoName = builder.t('outboundNames.Auto Select');
-        expect(builder.config.proxies.find(proxy => proxy.startsWith('[OUT · Exit] Exit Node =')))
-            .toContain('underlying-proxy=🔗 IN');
+        expect(builder.config.proxies.find(proxy => proxy.startsWith('[链式代理] Exit Node =')))
+            .toContain('underlying-proxy=入口节点');
         expect(builder.config.proxies.find(proxy => proxy.startsWith('Exit Node ='))).not.toContain('underlying-proxy=');
-        expect(builder.config['proxy-groups']).toContain('🔗 OUT · Exit = select, [OUT · Exit] Exit Node');
+        expect(builder.config['proxy-groups']).toContain('落地节点 = select, [链式代理] Exit Node');
         expect(builder.config['proxy-groups']).toContain(autoName + ' = url-test, Entry Node, Third Node, url=http://www.gstatic.com/generate_204, interval=300');
-        expect(builder.config['proxy-groups']).toContain('🔗 IN = select, Entry Node, Third Node, ' + autoName);
+        expect(builder.config['proxy-groups']).toContain('入口节点 = select, Entry Node, Third Node, ' + autoName);
     });
 
     it('prevents subscription overrides from adding OUT to either IN group', async () => {
-        mockSubscriptions('clash', '\nproxy-groups:\n  - name: ⚡ 自动选择\n    type: url-test\n    proxies: [Exit Node]\n  - name: 🔗 IN\n    type: select\n    proxies: [Exit Node]\n');
+        mockSubscriptions('clash', '\nproxy-groups:\n  - name: ⚡ 自动选择\n    type: url-test\n    proxies: [Exit Node]\n  - name: 入口节点\n    type: select\n    proxies: [Exit Node]\n');
         const builder = new ClashConfigBuilder(input, [], [], null, 'zh-CN', 'test-agent', false, false, null, null, true, chain);
         const config = yaml.load(await builder.build());
-        const dialer = config.proxies.find(proxy => proxy.name === '[OUT · Exit] Exit Node')['dialer-proxy'];
+        const dialer = config.proxies.find(proxy => proxy.name === '[链式代理] Exit Node')['dialer-proxy'];
         const entry = config['proxy-groups'].find(group => group.name === dialer);
         expect(entry.proxies).toEqual(['Entry Node', 'Third Node', builder.t('outboundNames.Auto Select')]);
         expect(config['proxy-groups'].find(group => group.name === entry.proxies.at(-1)).proxies)
@@ -183,7 +183,7 @@ describe('OUT source chain proxy', () => {
         const response = await app.request('http://localhost/clash?' + params);
         expect(response.status).toBe(200);
         const config = yaml.load(await response.text());
-        const exit = config.proxies.find(proxy => proxy.name === '[OUT · Exit] Exit Node');
+        const exit = config.proxies.find(proxy => proxy.name === '[链式代理] Exit Node');
         expect(config['proxy-groups'].find(group => group.name === exit['dialer-proxy']).proxies)
             .toEqual(['Entry Node', 'Third Node', '⚡ 自动选择']);
     });

@@ -476,13 +476,13 @@ export class BaseConfigBuilder {
         }
         this.chainAutoGroupName = this.reserveChainName(this.t('outboundNames.Auto Select'));
         this.createChainGroup(this.chainAutoGroupName, this.chainEntryProxyNames, 'url-test');
-        this.chainEntryGroupName = this.reserveChainName('🔗 IN');
+        this.chainEntryGroupName = this.reserveChainName(this.t('chainEntry'));
         this.createChainGroup(this.chainEntryGroupName, [...this.chainEntryProxyNames, this.chainAutoGroupName]);
 
         const chainedNames = [];
         (this.sourceItems.get(exit.id) || []).forEach(item => {
             const cloned = deepCopy(item);
-            cloned.tag = this.reserveChainName(`[OUT · ${exit.label}] ${item.tag}`);
+            cloned.tag = this.reserveChainName(`[${this.t('chainProxy')}] ${item.tag}`);
             const converted = this.convertProxy(cloned);
             const chained = converted && this.applyChainToProxy(converted, this.chainEntryGroupName);
             if (!chained) return;
@@ -492,7 +492,7 @@ export class BaseConfigBuilder {
                 if (name) chainedNames.push(name);
             }
         });
-        const chainGroupName = this.reserveChainName(`🔗 OUT · ${exit.label}`);
+        const chainGroupName = this.reserveChainName(this.t('chainExit'));
         this.createChainGroup(chainGroupName, chainedNames);
         this.chainGroupNames.push(chainGroupName);
     }
