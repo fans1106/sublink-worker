@@ -476,13 +476,15 @@ export class BaseConfigBuilder {
         }
         this.chainAutoGroupName = this.reserveChainName(this.t('outboundNames.Auto Select'));
         this.createChainGroup(this.chainAutoGroupName, this.chainEntryProxyNames, 'url-test');
+        this.chainEntryGroupName = this.reserveChainName('🔗 IN');
+        this.createChainGroup(this.chainEntryGroupName, [...this.chainEntryProxyNames, this.chainAutoGroupName]);
 
         const chainedNames = [];
         (this.sourceItems.get(exit.id) || []).forEach(item => {
             const cloned = deepCopy(item);
             cloned.tag = this.reserveChainName(`[OUT · ${exit.label}] ${item.tag}`);
             const converted = this.convertProxy(cloned);
-            const chained = converted && this.applyChainToProxy(converted, this.chainAutoGroupName);
+            const chained = converted && this.applyChainToProxy(converted, this.chainEntryGroupName);
             if (!chained) return;
             const added = this.addProxyToConfig(chained);
             if (added && this.isUsableChainProxy(added)) {
@@ -524,7 +526,7 @@ export class BaseConfigBuilder {
             // Subscription overrides must not reintroduce OUT nodes into the chain's dialer.
             this.mergeUserProxyGroups(this.pendingUserProxyGroups.filter(group => {
                 const name = typeof group === 'string' ? group.split('=')[0].trim() : group?.name;
-                return !this.chainAutoGroupName || name !== this.chainAutoGroupName;
+                return name !== this.chainAutoGroupName && name !== this.chainEntryGroupName;
             }));
         }
     }
