@@ -165,9 +165,9 @@ describe('OUT source chain proxy', () => {
             .toContain('underlying-proxy=入口节点');
         expect(builder.config.proxies.find(proxy => proxy.startsWith('Exit Node ='))).not.toContain('underlying-proxy=');
         expect(builder.config['proxy-groups']).toContain('落地节点 = select, [链式代理] Exit Node, ⚡ 链式自动选择 · Exit Node');
-        expect(builder.config['proxy-groups']).toContain(autoName + ' = url-test, Entry Node, Third Node, interval=300, tolerance=50');
+        expect(builder.config['proxy-groups']).toContain(autoName + ' = url-test, Entry Node, Third Node, interval=3600, tolerance=50');
         expect(builder.config['proxy-groups']).toContain('入口节点 = select, Entry Node, Third Node, ' + autoName);
-        expect(builder.config['proxy-groups']).toContain('⚡ 链式自动选择 · Exit Node = url-test, [链式代理 · Entry Node] Exit Node, [链式代理 · Third Node] Exit Node, interval=300, tolerance=50');
+        expect(builder.config['proxy-groups']).toContain('⚡ 链式自动选择 · Exit Node = url-test, [链式代理 · Entry Node] Exit Node, [链式代理 · Third Node] Exit Node, interval=3600, tolerance=50');
         expect(builder.config.proxies.find(proxy => proxy.startsWith('[链式代理 · Entry Node] Exit Node =')))
             .toContain('underlying-proxy=Entry Node');
         expect(builder.config.proxies.find(proxy => proxy.startsWith('[链式代理 · Third Node] Exit Node =')))

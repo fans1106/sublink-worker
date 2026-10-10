@@ -115,7 +115,8 @@ export function createApp(bindings = {}) {
                 externalUiDownloadUrl,
                 singboxConfigVersion,
                 includeAutoSelect,
-                chainConfig
+                chainConfig,
+                c.req.query('auto_select_interval')
             );
             await builder.build();
             const userinfo = builder.getSubscriptionUserinfo();
@@ -165,7 +166,8 @@ export function createApp(bindings = {}) {
                 externalController,
                 externalUiDownloadUrl,
                 includeAutoSelect,
-                chainConfig
+                chainConfig,
+                c.req.query('auto_select_interval')
             );
             await builder.build();
             const userinfo = builder.getSubscriptionUserinfo();
@@ -210,7 +212,8 @@ export function createApp(bindings = {}) {
                 ua,
                 groupByCountry,
                 includeAutoSelect,
-                chainConfig
+                chainConfig,
+                c.req.query('auto_select_interval')
             );
             builder.setSubscriptionUrl(c.req.url);
             await builder.build();

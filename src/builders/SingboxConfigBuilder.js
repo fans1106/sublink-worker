@@ -14,9 +14,9 @@ const ANYTLS_OPTION_KEYS = {
 };
 
 export class SingboxConfigBuilder extends BaseConfigBuilder {
-    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry = false, enableClashUI = false, externalController, externalUiDownloadUrl, singboxVersion = '1.12', includeAutoSelect = true, chainConfig = null) {
+    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry = false, enableClashUI = false, externalController, externalUiDownloadUrl, singboxVersion = '1.12', includeAutoSelect = true, chainConfig = null, autoSelectInterval) {
         const resolvedBaseConfig = baseConfig ?? SING_BOX_CONFIG;
-        super(inputString, resolvedBaseConfig, lang, userAgent, groupByCountry, includeAutoSelect, chainConfig);
+        super(inputString, resolvedBaseConfig, lang, userAgent, groupByCountry, includeAutoSelect, chainConfig, autoSelectInterval);
 
         this.selectedRules = selectedRules;
         this.customRules = customRules;
@@ -61,7 +61,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
             health_check: {
                 enabled: true,
                 url: 'https://www.gstatic.com/generate_204',
-                interval: '5m'
+                interval: `${this.autoSelectInterval}s`
             }
         }));
     }
@@ -206,7 +206,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
             type: type === 'url-test' ? 'urltest' : 'selector',
             tag: name,
             outbounds: uniqueNames(members),
-            ...(type === 'url-test' ? { url: 'https://www.gstatic.com/generate_204', interval: '5m', tolerance: 50 } : {})
+            ...(type === 'url-test' ? { url: 'https://www.gstatic.com/generate_204', interval: `${this.autoSelectInterval}s`, tolerance: 50 } : {})
         });
     }
 
@@ -235,6 +235,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
         const group = {
             type: "urltest",
             tag,
+            interval: `${this.autoSelectInterval}s`,
             outbounds: autoSelectMembers
         };
 
@@ -378,6 +379,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
                 this.config.outbounds.push({
                     tag: groupName,
                     type: 'urltest',
+                    interval: `${this.autoSelectInterval}s`,
                     outbounds: countryProxies
                 });
                 existingTags.add(norm);

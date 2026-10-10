@@ -19,6 +19,7 @@ const preset = {
     customRules: [{ name: 'Work', domain_suffix: ['example.com'] }],
     groupByCountry: true,
     includeAutoSelect: false,
+    autoSelectInterval: 120,
     enableClashUI: true,
     externalController: '127.0.0.1:9090',
     externalUiDownloadUrl: 'https://example.com/ui.zip',
@@ -40,7 +41,7 @@ function browserForm(app) {
     const customRulesInput = { value: '[]' };
     const window = {
         APP_TRANSLATIONS: {},
-        location: { href: 'http://localhost/?configId=singbox_stale', search: '?configId=singbox_stale' },
+        location: { origin: 'http://localhost', href: 'http://localhost/?configId=singbox_stale', search: '?configId=singbox_stale' },
         history: { replaceState: vi.fn() },
         dispatchEvent: vi.fn(event => { customRulesInput.value = JSON.stringify(event.detail.rules); })
     };
@@ -48,10 +49,17 @@ function browserForm(app) {
     const document = { querySelector: () => customRulesInput };
     const CustomEvent = function (type, options) { this.type = type; this.detail = options.detail; };
     const confirm = vi.fn(() => true);
-    const data = new Function('window', 'document', 'fetch', 'CustomEvent', 'confirm',
-        `(${formLogicFn.toString()})(); return window.formData();`)(window, document, fetch, CustomEvent, confirm);
+    const alert = vi.fn();
+    const storage = new Map();
+    const localStorage = {
+        getItem: key => storage.get(key) ?? null,
+        setItem: (key, value) => storage.set(key, String(value))
+    };
+    const data = new Function('window', 'document', 'fetch', 'CustomEvent', 'confirm', 'alert', 'localStorage',
+        `(${formLogicFn.toString()})(); return window.formData();`)(window, document, fetch, CustomEvent, confirm, alert, localStorage);
     data.$nextTick = async callback => callback();
-    return { data, window, customRulesInput, fetch, confirm };
+    data.$watch = vi.fn();
+    return { data, window, customRulesInput, fetch, confirm, alert, localStorage };
 }
 
 describe('form presets', () => {
@@ -206,6 +214,7 @@ describe('form presets', () => {
         expect(restored.data.presetError).toBe(false);
         expect(restored.data.chainEnabled).toBe(false);
         expect(restored.data.currentConfigId).toBe('');
+        expect(restored.data.autoSelectInterval).toBe(3600);
         expect(restored.data.getFormPreset().customRules).toEqual([]);
         expect(restored.window.history.replaceState.mock.calls[0][2]).not.toContain('configId');
     });
@@ -239,6 +248,63 @@ describe('form presets', () => {
     it('keeps unrelated browser state out of stored presets', () => {
         const normalized = normalizeFormPreset({ ...preset, loading: true, generatedLinks: { clash: 'old' } });
         expect(normalized).toEqual(preset);
+    });
+
+    it('defaults old presets to one hour and rejects invalid interval values', async () => {
+        expect(normalizeFormPreset({ version: 1, input }).autoSelectInterval).toBe(3600);
+        const app = createTestApp();
+        for (const autoSelectInterval of [0, -1, 1.5, '120', Number.MAX_SAFE_INTEGER + 1]) {
+            expect((await postPreset(app, { ...preset, autoSelectInterval })).status).toBe(400);
+        }
+    });
+
+    it('restores the interval from browser storage and registers persistence', () => {
+        const form = browserForm(createTestApp());
+        form.localStorage.setItem('autoSelectInterval', 180);
+        form.data.init();
+        expect(form.data.autoSelectInterval).toBe(180);
+        const [, persist] = form.data.$watch.mock.calls.find(([key]) => key === 'autoSelectInterval');
+        persist(240);
+        expect(form.localStorage.getItem('autoSelectInterval')).toBe('240');
+
+        const invalid = browserForm(createTestApp());
+        invalid.localStorage.setItem('autoSelectInterval', '-1');
+        invalid.data.init();
+        expect(invalid.data.autoSelectInterval).toBe(3600);
+    });
+
+    it('blocks invalid intervals before generating links or saving presets', async () => {
+        const form = browserForm(createTestApp());
+        form.data.input = input;
+        for (const interval of ['', 0, -1, 1.5, 'abc']) {
+            form.data.autoSelectInterval = interval;
+            await form.data.submitForm();
+            await form.data.savePreset();
+        }
+        expect(form.data.generatedLinks).toBeNull();
+        expect(form.fetch).not.toHaveBeenCalled();
+        expect(form.alert).toHaveBeenCalledTimes(10);
+    });
+
+    it('includes the interval in generated links and restores it from imported links', async () => {
+        vi.useFakeTimers();
+        try {
+            const form = browserForm(createTestApp());
+            form.data.input = input;
+            form.data.autoSelectInterval = 90;
+            await form.data.submitForm();
+            for (const platform of ['singbox', 'clash', 'surge']) {
+                const url = new URL(form.data.generatedLinks[platform]);
+                expect(url.searchParams.get('auto_select_interval')).toBe('90');
+                const restored = browserForm(createTestApp());
+                restored.data.populateFormFromUrl(url);
+                expect(restored.data.autoSelectInterval).toBe(90);
+            }
+            form.data.populateFormFromUrl(new URL('http://localhost/clash?config=test'));
+            expect(form.data.autoSelectInterval).toBe(3600);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('imports old presets using their OUT source and discards the old IN selection', () => {

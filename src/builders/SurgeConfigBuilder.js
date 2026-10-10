@@ -5,9 +5,9 @@ import { addProxyWithDedup } from './helpers/proxyHelpers.js';
 import { buildSelectorMembers, buildNodeSelectMembers, buildCustomRuleMembers, uniqueNames } from './helpers/groupBuilder.js';
 
 export class SurgeConfigBuilder extends BaseConfigBuilder {
-    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry, includeAutoSelect = true, chainConfig = null) {
+    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry, includeAutoSelect = true, chainConfig = null, autoSelectInterval) {
         const resolvedBaseConfig = baseConfig ?? SURGE_CONFIG;
-        super(inputString, resolvedBaseConfig, lang, userAgent, groupByCountry, includeAutoSelect, chainConfig);
+        super(inputString, resolvedBaseConfig, lang, userAgent, groupByCountry, includeAutoSelect, chainConfig, autoSelectInterval);
         this.selectedRules = selectedRules;
         this.customRules = customRules;
         this.subscriptionUrl = null;
@@ -166,7 +166,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
         this.config['proxy-groups'] = this.config['proxy-groups'] || [];
         this.config['proxy-groups'].push(this.createProxyGroup(
             name, type, members,
-            type === 'url-test' ? ', interval=300, tolerance=50' : ''
+            type === 'url-test' ? `, interval=${this.autoSelectInterval}, tolerance=50` : ''
         ));
     }
 
@@ -233,7 +233,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
             if (group.interval) {
                 result += `, interval=${group.interval}`;
             } else {
-                result += ', interval=300';
+                result += `, interval=${this.autoSelectInterval}`;
             }
         }
 
@@ -282,7 +282,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
                 name,
                 'url-test',
                 this.sanitizeOptions(proxyList),
-                ', url=http://www.gstatic.com/generate_204, interval=300'
+                `, interval=${this.autoSelectInterval}`
             )
         );
     }
@@ -370,7 +370,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
             countryGroupNames.push(groupName);
             if (!existing.has(groupName.trim())) {
                 this.config['proxy-groups'].push(
-                    this.createProxyGroup(groupName, 'url-test', proxies, ', url=https://www.gstatic.com/generate_204, interval=300')
+                    this.createProxyGroup(groupName, 'url-test', proxies, `, interval=${this.autoSelectInterval}`)
                 );
                 existing.add(groupName.trim());
             }

@@ -2,7 +2,7 @@ export const formLogicFn = (t) => {
     window.formData = function () {
         const presetFields = [
             'input', 'chainEnabled', 'chainExitLine',
-            'selectedRules', 'selectedPredefinedRule', 'groupByCountry', 'includeAutoSelect',
+            'selectedRules', 'selectedPredefinedRule', 'groupByCountry', 'includeAutoSelect', 'autoSelectInterval',
             'enableClashUI', 'externalController', 'externalUiDownloadUrl', 'customUA',
             'configType', 'configEditor', 'currentConfigId'
         ];
@@ -92,6 +92,7 @@ export const formLogicFn = (t) => {
             selectedPredefinedRule: 'balanced',
             groupByCountry: false,
             includeAutoSelect: true,
+            autoSelectInterval: 3600,
             enableClashUI: false,
             externalController: '',
             externalUiDownloadUrl: '',
@@ -149,6 +150,8 @@ export const formLogicFn = (t) => {
                 this.showAdvanced = localStorage.getItem('advancedToggle') === 'true';
                 this.groupByCountry = localStorage.getItem('groupByCountry') === 'true';
                 this.includeAutoSelect = localStorage.getItem('includeAutoSelect') !== 'false';
+                const savedInterval = Number(localStorage.getItem('autoSelectInterval'));
+                if (Number.isSafeInteger(savedInterval) && savedInterval > 0) this.autoSelectInterval = savedInterval;
                 this.enableClashUI = localStorage.getItem('enableClashUI') === 'true';
                 this.externalController = localStorage.getItem('externalController') || '';
                 this.externalUiDownloadUrl = localStorage.getItem('externalUiDownloadUrl') || '';
@@ -185,6 +188,7 @@ export const formLogicFn = (t) => {
                 this.$watch('chainExitLine', val => localStorage.setItem('chainExitLine', val));
                 this.$watch('groupByCountry', val => localStorage.setItem('groupByCountry', val));
                 this.$watch('includeAutoSelect', val => localStorage.setItem('includeAutoSelect', val));
+                this.$watch('autoSelectInterval', val => localStorage.setItem('autoSelectInterval', val));
                 this.$watch('enableClashUI', val => localStorage.setItem('enableClashUI', val));
                 this.$watch('externalController', val => localStorage.setItem('externalController', val));
                 this.$watch('externalUiDownloadUrl', val => localStorage.setItem('externalUiDownloadUrl', val));
@@ -212,6 +216,16 @@ export const formLogicFn = (t) => {
                 };
             },
 
+            validateAutoSelectInterval() {
+                const seconds = Number(this.autoSelectInterval);
+                if (!/^[0-9]+$/.test(String(this.autoSelectInterval)) || !Number.isSafeInteger(seconds) || seconds < 1) {
+                    alert(window.APP_TRANSLATIONS.autoSelectIntervalInvalid);
+                    return false;
+                }
+                this.autoSelectInterval = seconds;
+                return true;
+            },
+
             updatePresetIdInUrl() {
                 const url = new URL(window.location.href);
                 if (this.presetId) url.searchParams.set('presetId', this.presetId);
@@ -221,6 +235,7 @@ export const formLogicFn = (t) => {
 
             async savePreset(update = false) {
                 if (this.presetBusy) return;
+                if (!this.validateAutoSelectInterval()) return;
                 const existingId = this.presetId.trim();
                 if (update && !existingId) return;
                 if (this.chainEnabled && !this.buildChainConfig()) return;
@@ -494,6 +509,7 @@ export const formLogicFn = (t) => {
             },
 
             async submitForm() {
+                if (!this.validateAutoSelectInterval()) return;
                 this.loading = true;
                 this.shortenedLinks = null; // Reset shortened links when generating new links
                 try {
@@ -508,6 +524,7 @@ export const formLogicFn = (t) => {
                     params.append('ua', this.customUA);
                     params.append('selectedRules', JSON.stringify(this.selectedRules));
                     params.append('customRules', JSON.stringify(customRules));
+                    params.append('auto_select_interval', String(this.autoSelectInterval));
 
                     const chainConfig = this.buildChainConfig();
                     if (this.chainEnabled && !chainConfig) return;
@@ -774,6 +791,7 @@ export const formLogicFn = (t) => {
                 // Extract other parameters
                 this.groupByCountry = params.get('group_by_country') === 'true';
                 this.includeAutoSelect = params.get('include_auto_select') !== 'false';
+                this.autoSelectInterval = params.has('auto_select_interval') ? Number(params.get('auto_select_interval')) : 3600;
                 this.enableClashUI = params.get('enable_clash_ui') === 'true';
 
                 const externalController = params.get('external_controller');
@@ -799,7 +817,7 @@ export const formLogicFn = (t) => {
 
                 // Expand advanced options if any advanced settings are present
                 if (selectedRules || customRules || this.groupByCountry || this.enableClashUI ||
-                    externalController || externalUiDownloadUrl || ua || configId || chain) {
+                    externalController || externalUiDownloadUrl || ua || configId || chain || params.has('auto_select_interval')) {
                     this.showAdvanced = true;
                 }
             }

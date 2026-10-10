@@ -48,11 +48,11 @@ function getClashUdpValue(proxy, defaultEnabled = true) {
 }
 
 export class ClashConfigBuilder extends BaseConfigBuilder {
-    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry = false, enableClashUI = false, externalController, externalUiDownloadUrl, includeAutoSelect = true, chainConfig = null) {
+    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry = false, enableClashUI = false, externalController, externalUiDownloadUrl, includeAutoSelect = true, chainConfig = null, autoSelectInterval) {
         if (!baseConfig) {
             baseConfig = CLASH_CONFIG;
         }
-        super(inputString, baseConfig, lang, userAgent, groupByCountry, includeAutoSelect, chainConfig);
+        super(inputString, baseConfig, lang, userAgent, groupByCountry, includeAutoSelect, chainConfig, autoSelectInterval);
         this.selectedRules = selectedRules;
         this.customRules = customRules;
         this.countryGroupNames = [];
@@ -87,7 +87,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
                 'health-check': {
                     enable: true,
                     url: 'https://www.gstatic.com/generate_204',
-                    interval: 300,
+                    interval: this.autoSelectInterval,
                     timeout: 5000,
                     lazy: true
                 }
@@ -334,7 +334,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
         this.config['proxy-groups'] = this.config['proxy-groups'] || [];
         this.config['proxy-groups'].push({
             name, type, proxies: uniqueNames(members),
-            ...(type === 'url-test' ? { url: 'https://www.gstatic.com/generate_204', interval: 300, tolerance: 50, lazy: false } : {})
+            ...(type === 'url-test' ? { url: 'https://www.gstatic.com/generate_204', interval: this.autoSelectInterval, tolerance: 50, lazy: false } : {})
         });
     }
 
@@ -368,7 +368,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
             type: 'url-test',
             proxies: deepCopy(uniqueNames(proxyList)),
             url: 'https://www.gstatic.com/generate_204',
-            interval: 300,
+            interval: this.autoSelectInterval,
             lazy: false
         };
 
@@ -544,7 +544,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
                     type: 'url-test',
                     proxies: proxies,
                     url: 'https://www.gstatic.com/generate_204',
-                    interval: 300,
+                    interval: this.autoSelectInterval,
                     lazy: false
                 };
                 // Add 'use' field if we have proxy-providers, narrowed to this

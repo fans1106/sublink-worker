@@ -1,5 +1,6 @@
 import { parseChainConfig } from '../chains/chainConfig.js';
 import { InvalidPayloadError } from '../services/errors.js';
+import { DEFAULT_AUTO_SELECT_INTERVAL, parseAutoSelectInterval } from '../config/autoSelectInterval.js';
 
 const DEFAULTS = {
     input: '',
@@ -10,6 +11,7 @@ const DEFAULTS = {
     customRules: [],
     groupByCountry: false,
     includeAutoSelect: true,
+    autoSelectInterval: DEFAULT_AUTO_SELECT_INTERVAL,
     enableClashUI: false,
     externalController: '',
     externalUiDownloadUrl: '',
@@ -38,6 +40,7 @@ export function normalizeFormPreset(content) {
     if (!preset.input.trim()) {
         throw new InvalidPayloadError('Preset input must not be empty');
     }
+    preset.autoSelectInterval = parseAutoSelectInterval(preset.autoSelectInterval);
     if (!['singbox', 'clash', 'surge'].includes(preset.configType)
         || !['minimal', 'balanced', 'comprehensive', 'custom'].includes(preset.selectedPredefinedRule)
         || !preset.selectedRules.every(rule => typeof rule === 'string')
