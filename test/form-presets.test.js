@@ -47,10 +47,11 @@ function browserForm(app) {
     const fetch = vi.fn((url, options) => app.request(`http://localhost${url}`, options));
     const document = { querySelector: () => customRulesInput };
     const CustomEvent = function (type, options) { this.type = type; this.detail = options.detail; };
-    const data = new Function('window', 'document', 'fetch', 'CustomEvent',
-        `(${formLogicFn.toString()})(); return window.formData();`)(window, document, fetch, CustomEvent);
+    const confirm = vi.fn(() => true);
+    const data = new Function('window', 'document', 'fetch', 'CustomEvent', 'confirm',
+        `(${formLogicFn.toString()})(); return window.formData();`)(window, document, fetch, CustomEvent, confirm);
     data.$nextTick = async callback => callback();
-    return { data, window, customRulesInput, fetch };
+    return { data, window, customRulesInput, fetch, confirm };
 }
 
 describe('form presets', () => {
@@ -96,6 +97,50 @@ describe('form presets', () => {
         }
     });
 
+    it('updates a preset without changing its ID or setting a TTL, then deletes only that preset', async () => {
+        const kv = new MemoryKVAdapter();
+        const put = vi.spyOn(kv, 'put');
+        const app = createTestApp(kv, 60);
+        const { id } = await (await postPreset(app)).json();
+        await kv.put('singbox_shared', '{"log":{"level":"warn"}}');
+        const updated = { ...preset, groupByCountry: false, customUA: 'updated-agent' };
+        const response = await app.request(`http://localhost/presets/${id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated)
+        });
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ id });
+        expect(put).toHaveBeenLastCalledWith(id, JSON.stringify(normalizeFormPreset(updated)), undefined);
+        expect(await (await app.request(`http://localhost/presets/${id}`)).json()).toEqual(updated);
+
+        const deleted = await app.request(`http://localhost/presets/${id}`, { method: 'DELETE' });
+        expect(deleted.status).toBe(204);
+        expect(await kv.get('singbox_shared')).not.toBeNull();
+        expect((await app.request(`http://localhost/presets/${id}`)).status).toBe(404);
+        expect((await app.request(`http://localhost/presets/${id}`, { method: 'DELETE' })).status).toBe(404);
+        expect((await app.request(`http://localhost/presets/${id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated)
+        })).status).toBe(404);
+    });
+
+    it('rejects invalid updates without changing the stored preset or other config IDs', async () => {
+        const kv = new MemoryKVAdapter();
+        const app = createTestApp(kv);
+        const { id } = await (await postPreset(app)).json();
+        for (const body of ['{', JSON.stringify({ ...preset, input: '' })]) {
+            expect((await app.request(`http://localhost/presets/${id}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' }, body
+            })).status).toBe(400);
+        }
+        expect(await (await app.request(`http://localhost/presets/${id}`)).json()).toEqual(preset);
+        const get = vi.spyOn(kv, 'get');
+        const remove = vi.spyOn(kv, 'delete');
+        for (const method of ['PUT', 'DELETE']) {
+            expect((await app.request('http://localhost/presets/singbox_12345678', { method })).status).toBe(400);
+        }
+        expect(get).not.toHaveBeenCalled();
+        expect(remove).not.toHaveBeenCalled();
+    });
+
     it('validates payloads and chain sources before saving', async () => {
         const app = createTestApp();
         for (const content of [null, { version: 2 }, { ...preset, input: '' },
@@ -119,7 +164,9 @@ describe('form presets', () => {
         expect(get).not.toHaveBeenCalled();
         const noStorage = createTestApp(null);
         expect((await postPreset(noStorage)).status).toBe(501);
-        expect((await noStorage.request('http://localhost/presets/preset_12345678')).status).toBe(501);
+        for (const method of ['GET', 'PUT', 'DELETE']) {
+            expect((await noStorage.request('http://localhost/presets/preset_12345678', { method })).status).toBe(501);
+        }
     });
 
     it('saves and restores the browser form, including custom rules and the base config snapshot', async () => {
@@ -161,6 +208,32 @@ describe('form presets', () => {
         expect(restored.data.currentConfigId).toBe('');
         expect(restored.data.getFormPreset().customRules).toEqual([]);
         expect(restored.window.history.replaceState.mock.calls[0][2]).not.toContain('configId');
+    });
+
+    it('updates and deletes presets from the browser while retaining the current form', async () => {
+        const app = createTestApp();
+        const form = browserForm(app);
+        Object.assign(form.data, preset);
+        await form.data.savePreset();
+        const id = form.data.presetId;
+        form.data.customUA = 'changed-agent';
+        await form.data.savePreset(true);
+        expect(form.data.presetError).toBe(false);
+        expect(form.data.presetId).toBe(id);
+        expect((await (await app.request(`http://localhost/presets/${id}`)).json()).customUA).toBe('changed-agent');
+
+        form.confirm.mockReturnValueOnce(false);
+        const calls = form.fetch.mock.calls.length;
+        await form.data.deletePreset();
+        expect(form.fetch).toHaveBeenCalledTimes(calls);
+        expect(form.data.presetId).toBe(id);
+        await form.data.deletePreset();
+        expect(form.data.presetError).toBe(false);
+        expect(form.data.presetId).toBe('');
+        expect(form.data.input).toBe(preset.input);
+        expect(form.data.customUA).toBe('changed-agent');
+        expect(form.window.history.replaceState.mock.calls.at(-1)[2]).not.toContain('presetId');
+        expect((await app.request(`http://localhost/presets/${id}`)).status).toBe(404);
     });
 
     it('keeps unrelated browser state out of stored presets', () => {

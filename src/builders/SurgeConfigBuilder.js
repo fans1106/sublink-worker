@@ -166,7 +166,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
         this.config['proxy-groups'] = this.config['proxy-groups'] || [];
         this.config['proxy-groups'].push(this.createProxyGroup(
             name, type, members,
-            type === 'url-test' ? ', url=http://www.gstatic.com/generate_204, interval=300' : ''
+            type === 'url-test' ? ', interval=300, tolerance=50' : ''
         ));
     }
 

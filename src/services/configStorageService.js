@@ -26,13 +26,13 @@ export class ConfigStorageService {
         }
     }
 
-    async saveConfig(type, content) {
+    async saveConfig(type, content, existingId) {
         if (!type) {
             throw new InvalidPayloadError('Missing config type');
         }
 
         const kv = this.ensureKv();
-        const configId = `${type}_${generateWebPath(8)}`;
+        const configId = existingId || `${type}_${generateWebPath(8)}`;
         const configString = this.serializeConfig(type, content);
 
         // Validate string is JSON before storing
@@ -42,6 +42,10 @@ export class ConfigStorageService {
         const putOptions = ttlSeconds ? { expirationTtl: ttlSeconds } : undefined;
         await kv.put(configId, configString, putOptions);
         return configId;
+    }
+
+    async deleteConfigById(configId) {
+        await this.ensureKv().delete(configId);
     }
 
     serializeConfig(type, content) {

@@ -115,9 +115,14 @@ export const formLogicFn = (t) => {
             parseDebounceTimer: null,
             presetId: '',
             savingPreset: false,
+            updatingPreset: false,
+            deletingPreset: false,
             importingPreset: false,
             presetMessage: '',
             presetError: false,
+            get presetBusy() {
+                return this.savingPreset || this.importingPreset || this.deletingPreset;
+            },
             // These will be populated from window.APP_TRANSLATIONS
             processingText: '',
             convertText: '',
@@ -209,22 +214,26 @@ export const formLogicFn = (t) => {
 
             updatePresetIdInUrl() {
                 const url = new URL(window.location.href);
-                url.searchParams.set('presetId', this.presetId);
+                if (this.presetId) url.searchParams.set('presetId', this.presetId);
+                else url.searchParams.delete('presetId');
                 window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
             },
 
-            async savePreset() {
-                if (this.savingPreset || this.importingPreset) return;
+            async savePreset(update = false) {
+                if (this.presetBusy) return;
+                const existingId = this.presetId.trim();
+                if (update && !existingId) return;
                 if (this.chainEnabled && !this.buildChainConfig()) return;
                 this.savingPreset = true;
+                this.updatingPreset = update;
                 this.presetMessage = '';
                 this.presetError = false;
                 try {
                     if (this.configEditor.trim() && !await this.saveBaseConfig(false)) {
                         throw new Error(window.APP_TRANSLATIONS.configSaveFailed);
                     }
-                    const response = await fetch('/presets', {
-                        method: 'POST',
+                    const response = await fetch(update ? `/presets/${encodeURIComponent(existingId)}` : '/presets', {
+                        method: update ? 'PUT' : 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(this.getFormPreset())
                     });
@@ -232,17 +241,39 @@ export const formLogicFn = (t) => {
                     const { id } = await response.json();
                     this.presetId = id;
                     this.updatePresetIdInUrl();
-                    this.presetMessage = `${window.APP_TRANSLATIONS.presetSaved} ${id}`;
+                    this.presetMessage = `${update ? window.APP_TRANSLATIONS.presetUpdated : window.APP_TRANSLATIONS.presetSaved} ${id}`;
                 } catch (error) {
                     this.presetError = true;
                     this.presetMessage = `${window.APP_TRANSLATIONS.presetFailed}: ${error.message}`;
                 } finally {
                     this.savingPreset = false;
+                    this.updatingPreset = false;
+                }
+            },
+
+            async deletePreset() {
+                if (this.presetBusy) return;
+                const id = this.presetId.trim();
+                if (!id || !confirm(`${window.APP_TRANSLATIONS.confirmDeletePreset}\n${id}`)) return;
+                this.deletingPreset = true;
+                this.presetMessage = '';
+                this.presetError = false;
+                try {
+                    const response = await fetch(`/presets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                    if (!response.ok) throw new Error(await response.text());
+                    this.presetId = '';
+                    this.updatePresetIdInUrl();
+                    this.presetMessage = window.APP_TRANSLATIONS.presetDeleted;
+                } catch (error) {
+                    this.presetError = true;
+                    this.presetMessage = `${window.APP_TRANSLATIONS.presetFailed}: ${error.message}`;
+                } finally {
+                    this.deletingPreset = false;
                 }
             },
 
             async importPreset() {
-                if (this.importingPreset || this.savingPreset) return;
+                if (this.presetBusy) return;
                 this.importingPreset = true;
                 this.presetMessage = '';
                 this.presetError = false;

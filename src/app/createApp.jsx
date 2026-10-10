@@ -345,7 +345,7 @@ export function createApp(bindings = {}) {
         }
     });
 
-    app.get('/presets/:id', async (c) => {
+    app.use('/presets/:id', async (c, next) => {
         try {
             const id = c.req.param('id');
             if (!/^preset_[A-Za-z0-9]{8}$/.test(id)) {
@@ -355,7 +355,37 @@ export function createApp(bindings = {}) {
             const preset = await storage.getConfigById(id);
             c.header('Cache-Control', 'no-store');
             if (!preset) return c.text('Preset not found', 404);
-            return c.json(normalizeFormPreset(preset));
+            c.set('presetStorage', storage);
+            c.set('preset', preset);
+            await next();
+        } catch (error) {
+            return handleError(c, error, runtime.logger);
+        }
+    });
+
+    app.get('/presets/:id', (c) => {
+        try {
+            return c.json(normalizeFormPreset(c.get('preset')));
+        } catch (error) {
+            return handleError(c, error, runtime.logger);
+        }
+    });
+
+    app.put('/presets/:id', async (c) => {
+        try {
+            const preset = normalizeFormPreset(await c.req.json());
+            const id = await c.get('presetStorage').saveConfig('preset', preset, c.req.param('id'));
+            return c.json({ id });
+        } catch (error) {
+            if (error instanceof SyntaxError) return c.text('Invalid preset JSON', 400);
+            return handleError(c, error, runtime.logger);
+        }
+    });
+
+    app.delete('/presets/:id', async (c) => {
+        try {
+            await c.get('presetStorage').deleteConfigById(c.req.param('id'));
+            return c.body(null, 204);
         } catch (error) {
             return handleError(c, error, runtime.logger);
         }

@@ -71,6 +71,7 @@ describe('OUT source chain proxy', () => {
         const chainedExit = builder.config.outbounds.find(outbound => outbound.tag === '[链式代理] Exit Node');
         const originalExit = builder.config.outbounds.find(outbound => outbound.tag === 'Exit Node');
         const chainGroup = builder.config.outbounds.find(outbound => outbound.tag === '落地节点');
+        const chainAuto = builder.config.outbounds.find(outbound => outbound.tag === '⚡ 链式自动选择 · Exit Node');
 
         expect(auto.type).toBe('urltest');
         expect(auto.outbounds).toEqual(['Entry Node', 'Third Node']);
@@ -78,10 +79,15 @@ describe('OUT source chain proxy', () => {
         expect(entry.outbounds).toEqual(['Entry Node', 'Third Node', autoName]);
         expect(chainedExit.detour).toBe(entry.tag);
         expect(originalExit.detour).toBeUndefined();
-        expect(chainGroup.outbounds).toEqual([chainedExit.tag]);
+        expect(chainGroup.outbounds).toEqual([chainedExit.tag, chainAuto.tag]);
+        expect(chainAuto.type).toBe('urltest');
+        const candidates = chainAuto.outbounds.map(tag => builder.config.outbounds.find(outbound => outbound.tag === tag));
+        expect(candidates.map(outbound => outbound.detour)).toEqual(['Entry Node', 'Third Node']);
+        expect(candidates.every(outbound => outbound.server === originalExit.server)).toBe(true);
+        expect(candidates.every(outbound => outbound.detour !== entry.tag)).toBe(true);
         expect(builder.config.outbounds.find(outbound => outbound.tag === '🚀 节点选择').outbounds).toContain(chainGroup.tag);
         expect(builder.config.outbound_providers).toBeUndefined();
-        expect(builder.config.outbounds.filter(outbound => outbound.type === 'urltest')).toHaveLength(1);
+        expect(builder.config.outbounds.filter(outbound => outbound.type === 'urltest')).toHaveLength(2);
     });
 
     it('uses every non-OUT subscription as Mihomo auto selection candidates', async () => {
@@ -92,6 +98,7 @@ describe('OUT source chain proxy', () => {
         const auto = config['proxy-groups'].find(group => group.name === autoName);
         const entry = config['proxy-groups'].find(group => group.name === '入口节点');
         const chainedExit = config.proxies.find(proxy => proxy.name === '[链式代理] Exit Node');
+        const chainAuto = config['proxy-groups'].find(group => group.name === '⚡ 链式自动选择 · Exit Node');
 
         expect(auto.type).toBe('url-test');
         expect(auto.proxies).toEqual(['Entry Node', 'Third Node']);
@@ -99,10 +106,15 @@ describe('OUT source chain proxy', () => {
         expect(entry.proxies).toEqual(['Entry Node', 'Third Node', autoName]);
         expect(chainedExit['dialer-proxy']).toBe(entry.name);
         expect(config.proxies.find(proxy => proxy.name === 'Exit Node')['dialer-proxy']).toBeUndefined();
-        expect(config['proxy-groups'].find(group => group.name === '落地节点').proxies).toEqual([chainedExit.name]);
+        expect(config['proxy-groups'].find(group => group.name === '落地节点').proxies).toEqual([chainedExit.name, chainAuto.name]);
+        expect(chainAuto.type).toBe('url-test');
+        expect(chainAuto.lazy).toBe(false);
+        const candidates = chainAuto.proxies.map(name => config.proxies.find(proxy => proxy.name === name));
+        expect(candidates.map(proxy => proxy['dialer-proxy'])).toEqual(['Entry Node', 'Third Node']);
+        expect(candidates.every(proxy => proxy.server === 'exit.example')).toBe(true);
         expect(config['proxy-groups'].find(group => group.name === '🚀 节点选择').proxies).toContain('落地节点');
         expect(config['proxy-providers']).toBeUndefined();
-        expect(config['proxy-groups'].filter(group => group.type === 'url-test')).toHaveLength(1);
+        expect(config['proxy-groups'].filter(group => group.type === 'url-test')).toHaveLength(2);
     });
 
     it('supports VLESS URI sources when global auto selection is disabled', async () => {
@@ -116,6 +128,9 @@ describe('OUT source chain proxy', () => {
         expect(singbox.config.outbounds.find(outbound => outbound.tag === '入口节点').outbounds)
             .toEqual(['Entry VLESS', singbox.t('outboundNames.Auto Select')]);
         expect(singbox.config.outbounds.find(outbound => outbound.type === 'urltest').outbounds).toEqual(['Entry VLESS']);
+        const singboxAuto = singbox.config.outbounds.find(outbound => outbound.tag === '⚡ 链式自动选择 · Exit VLESS');
+        expect(singboxAuto.outbounds.map(tag => singbox.config.outbounds.find(outbound => outbound.tag === tag).detour))
+            .toEqual(['Entry VLESS']);
 
         const clashBuilder = new ClashConfigBuilder(vlessInput, [], [], null, 'zh-CN', 'test-agent', false, false, null, null, false, vlessChain);
         const clash = yaml.load(await clashBuilder.build());
@@ -124,6 +139,9 @@ describe('OUT source chain proxy', () => {
         expect(clash['proxy-groups'].find(group => group.name === '入口节点').proxies)
             .toEqual(['Entry VLESS', clashBuilder.t('outboundNames.Auto Select')]);
         expect(clash['proxy-groups'].find(group => group.type === 'url-test').proxies).toEqual(['Entry VLESS']);
+        const clashAuto = clash['proxy-groups'].find(group => group.name === '⚡ 链式自动选择 · Exit VLESS');
+        expect(clashAuto.proxies.map(name => clash.proxies.find(proxy => proxy.name === name)['dialer-proxy']))
+            .toEqual(['Entry VLESS']);
     });
 
     it('includes standalone URI nodes alongside IN subscriptions', async () => {
@@ -146,19 +164,28 @@ describe('OUT source chain proxy', () => {
         expect(builder.config.proxies.find(proxy => proxy.startsWith('[链式代理] Exit Node =')))
             .toContain('underlying-proxy=入口节点');
         expect(builder.config.proxies.find(proxy => proxy.startsWith('Exit Node ='))).not.toContain('underlying-proxy=');
-        expect(builder.config['proxy-groups']).toContain('落地节点 = select, [链式代理] Exit Node');
-        expect(builder.config['proxy-groups']).toContain(autoName + ' = url-test, Entry Node, Third Node, url=http://www.gstatic.com/generate_204, interval=300');
+        expect(builder.config['proxy-groups']).toContain('落地节点 = select, [链式代理] Exit Node, ⚡ 链式自动选择 · Exit Node');
+        expect(builder.config['proxy-groups']).toContain(autoName + ' = url-test, Entry Node, Third Node, interval=300, tolerance=50');
         expect(builder.config['proxy-groups']).toContain('入口节点 = select, Entry Node, Third Node, ' + autoName);
+        expect(builder.config['proxy-groups']).toContain('⚡ 链式自动选择 · Exit Node = url-test, [链式代理 · Entry Node] Exit Node, [链式代理 · Third Node] Exit Node, interval=300, tolerance=50');
+        expect(builder.config.proxies.find(proxy => proxy.startsWith('[链式代理 · Entry Node] Exit Node =')))
+            .toContain('underlying-proxy=Entry Node');
+        expect(builder.config.proxies.find(proxy => proxy.startsWith('[链式代理 · Third Node] Exit Node =')))
+            .toContain('underlying-proxy=Third Node');
     });
 
     it('prevents subscription overrides from adding OUT to either IN group', async () => {
-        mockSubscriptions('clash', '\nproxy-groups:\n  - name: ⚡ 自动选择\n    type: url-test\n    proxies: [Exit Node]\n  - name: 入口节点\n    type: select\n    proxies: [Exit Node]\n');
+        mockSubscriptions('clash', '\nproxy-groups:\n  - name: ⚡ 自动选择\n    type: url-test\n    proxies: [Exit Node]\n  - name: 入口节点\n    type: select\n    proxies: [Exit Node]\n  - name: ⚡ 链式自动选择 · Exit Node\n    type: url-test\n    proxies: [Exit Node]\n');
         const builder = new ClashConfigBuilder(input, [], [], null, 'zh-CN', 'test-agent', false, false, null, null, true, chain);
         const config = yaml.load(await builder.build());
         const dialer = config.proxies.find(proxy => proxy.name === '[链式代理] Exit Node')['dialer-proxy'];
         const entry = config['proxy-groups'].find(group => group.name === dialer);
         expect(entry.proxies).toEqual(['Entry Node', 'Third Node', builder.t('outboundNames.Auto Select')]);
         expect(config['proxy-groups'].find(group => group.name === entry.proxies.at(-1)).proxies)
+            .toEqual(['Entry Node', 'Third Node']);
+        const chainAuto = config['proxy-groups'].find(group => group.name === '⚡ 链式自动选择 · Exit Node');
+        expect(chainAuto.proxies).not.toContain('Exit Node');
+        expect(chainAuto.proxies.map(name => config.proxies.find(proxy => proxy.name === name)['dialer-proxy']))
             .toEqual(['Entry Node', 'Third Node']);
     });
 
@@ -167,6 +194,33 @@ describe('OUT source chain proxy', () => {
         const builder = new ClashConfigBuilder(outOnly, [], [], null, 'zh-CN', 'test-agent', false, false, null, null, true,
             parseChainConfig({ version: 2, exit: { line: 0 } }, outOnly));
         await expect(builder.build()).rejects.toThrow('supported IN nodes');
+    });
+
+    it('keeps each automatic group pinned to one manually chosen landing', async () => {
+        mockSubscriptions();
+        const originalFetch = fetchSubscriptionWithFormat.getMockImplementation();
+        fetchSubscriptionWithFormat.mockImplementation(async url => {
+            const result = await originalFetch(url);
+            if (url.includes('exit.example')) {
+                const config = yaml.load(result.content);
+                config.proxies.push({ ...config.proxies[0], name: 'Exit Two', server: 'exit-two.example' });
+                result.content = yaml.dump(config);
+            }
+            return result;
+        });
+        const builder = new ClashConfigBuilder(input, [], [], null, 'zh-CN', 'test-agent', false, false, null, null, true, chain);
+        const config = yaml.load(await builder.build());
+        for (const [name, server] of [['Exit Node', 'exit.example'], ['Exit Two', 'exit-two.example']]) {
+            const group = config['proxy-groups'].find(group => group.name === '⚡ 链式自动选择 · ' + name);
+            const paths = group.proxies.map(tag => config.proxies.find(proxy => proxy.name === tag));
+            expect(paths).toHaveLength(2);
+            expect(paths.every(proxy => proxy.server === server)).toBe(true);
+            expect(paths.map(proxy => proxy['dialer-proxy'])).toEqual(['Entry Node', 'Third Node']);
+        }
+        const normal = config['proxy-groups'].find(group => group.name === '⚡ 自动选择');
+        expect(normal.proxies).toEqual(['Entry Node', 'Third Node']);
+        expect(config['proxy-groups'].find(group => group.name === '入口节点').proxies)
+            .toEqual(['Entry Node', 'Third Node', normal.name]);
     });
 
     it('rejects chain parameters on the Xray URI endpoint', async () => {

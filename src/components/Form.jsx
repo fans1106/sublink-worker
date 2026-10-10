@@ -38,6 +38,9 @@ export const Form = (props) => {
     chainInvalid: t('chainInvalid'),
     presetSaved: t('presetSaved'),
     presetImported: t('presetImported'),
+    presetUpdated: t('presetUpdated'),
+    presetDeleted: t('presetDeleted'),
+    confirmDeletePreset: t('confirmDeletePreset'),
     presetFailed: t('presetFailed')
   };
 
@@ -55,13 +58,19 @@ export const Form = (props) => {
 
       <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
         <label for="presetId" class="block font-medium text-gray-700 dark:text-gray-300 mb-3">{t('formPreset')}</label>
-        <div class="flex flex-col sm:flex-row gap-3">
-          <input id="presetId" type="text" x-model="presetId" placeholder={t('presetIdPlaceholder')} class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
-          <button type="button" x-on:click="importPreset()" x-bind:disabled="!presetId.trim() || savingPreset || importingPreset" class="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-50">
+        <div class="flex flex-col sm:flex-row sm:flex-wrap gap-3">
+          <input id="presetId" type="text" x-model="presetId" x-bind:disabled="presetBusy" placeholder={t('presetIdPlaceholder')} class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+          <button type="button" x-on:click="importPreset()" x-bind:disabled="!presetId.trim() || presetBusy" class="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-50">
             <i class="fas fa-download mr-2" x-bind:class="importingPreset ? 'fa-spinner fa-spin' : 'fa-download'"></i>{t('importPreset')}
           </button>
-          <button type="button" x-on:click="savePreset()" x-bind:disabled="!input.trim() || savingPreset || importingPreset" class="px-4 py-2 rounded-lg bg-primary-600 text-white disabled:opacity-50">
-            <i class="fas fa-save mr-2" x-bind:class="savingPreset ? 'fa-spinner fa-spin' : 'fa-save'"></i>{t('savePreset')}
+          <button type="button" x-on:click="savePreset()" x-bind:disabled="!input.trim() || presetBusy" class="px-4 py-2 rounded-lg bg-primary-600 text-white disabled:opacity-50">
+            <i class="fas fa-save mr-2" x-bind:class="savingPreset && !updatingPreset ? 'fa-spinner fa-spin' : 'fa-save'"></i>{t('savePreset')}
+          </button>
+          <button type="button" x-on:click="savePreset(true)" x-bind:disabled="!presetId.trim() || !input.trim() || presetBusy" class="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-50">
+            <i class="fas fa-sync-alt mr-2" x-bind:class="updatingPreset ? 'fa-spinner fa-spin' : 'fa-sync-alt'"></i>{t('updatePreset')}
+          </button>
+          <button type="button" x-on:click="deletePreset()" x-bind:disabled="!presetId.trim() || presetBusy" class="px-4 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 disabled:opacity-50">
+            <i class="fas fa-trash-alt mr-2" x-bind:class="deletingPreset ? 'fa-spinner fa-spin' : 'fa-trash-alt'"></i>{t('deletePreset')}
           </button>
         </div>
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-3">{t('presetTip')}</p>

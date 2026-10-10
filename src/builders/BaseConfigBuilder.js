@@ -481,16 +481,26 @@ export class BaseConfigBuilder {
 
         const chainedNames = [];
         (this.sourceItems.get(exit.id) || []).forEach(item => {
-            const cloned = deepCopy(item);
-            cloned.tag = this.reserveChainName(`[${this.t('chainProxy')}] ${item.tag}`);
-            const converted = this.convertProxy(cloned);
-            const chained = converted && this.applyChainToProxy(converted, this.chainEntryGroupName);
-            if (!chained) return;
-            const added = this.addProxyToConfig(chained);
-            if (added && this.isUsableChainProxy(added)) {
-                const name = this.getProxyName(added);
-                if (name) chainedNames.push(name);
-            }
+            const addPath = (entryName, label) => {
+                const cloned = deepCopy(item);
+                cloned.tag = this.reserveChainName(`[${label}] ${item.tag}`);
+                const converted = this.convertProxy(cloned);
+                const chained = converted && this.applyChainToProxy(converted, entryName);
+                if (!chained) return null;
+                const added = this.addProxyToConfig(chained);
+                return added && this.isUsableChainProxy(added) ? this.getProxyName(added) : null;
+            };
+            const manualName = addPath(this.chainEntryGroupName, this.t('chainProxy'));
+            if (!manualName) return;
+            chainedNames.push(manualName);
+
+            // Each probe pins both hops, so its delay measures this landing via one entry.
+            const candidates = this.chainEntryProxyNames
+                .map(entryName => addPath(entryName, `${this.t('chainProxy')} · ${entryName}`))
+                .filter(Boolean);
+            const autoName = this.reserveChainName(`${this.t('chainAutoSelect')} · ${item.tag}`);
+            this.createChainGroup(autoName, candidates, 'url-test');
+            chainedNames.push(autoName);
         });
         const chainGroupName = this.reserveChainName(this.t('chainExit'));
         this.createChainGroup(chainGroupName, chainedNames);
@@ -523,10 +533,10 @@ export class BaseConfigBuilder {
 
         // Merge user-defined proxy-groups after system groups are created
         if (this.pendingUserProxyGroups && this.pendingUserProxyGroups.length > 0) {
-            // Subscription overrides must not reintroduce OUT nodes into the chain's dialer.
+            // Subscription overrides must not reintroduce OUT nodes or mutable probe paths.
             this.mergeUserProxyGroups(this.pendingUserProxyGroups.filter(group => {
                 const name = typeof group === 'string' ? group.split('=')[0].trim() : group?.name;
-                return name !== this.chainAutoGroupName && name !== this.chainEntryGroupName;
+                return !this.chainReservedNames.has(name);
             }));
         }
     }

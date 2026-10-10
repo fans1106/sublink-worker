@@ -334,7 +334,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
         this.config['proxy-groups'] = this.config['proxy-groups'] || [];
         this.config['proxy-groups'].push({
             name, type, proxies: uniqueNames(members),
-            ...(type === 'url-test' ? { url: 'https://www.gstatic.com/generate_204', interval: 300, tolerance: 50 } : {})
+            ...(type === 'url-test' ? { url: 'https://www.gstatic.com/generate_204', interval: 300, tolerance: 50, lazy: false } : {})
         });
     }
 
