@@ -120,13 +120,13 @@ function detectFormat(content) {
 /**
  * Fetch subscription content from a URL and parse it
  * @param {string} url - The subscription URL to fetch
- * @param {string} userAgent - Optional User-Agent header
+ * @param {string} _userAgent - Retained for caller compatibility; never forwarded upstream
  * @param {Function} [subscriptionFetcher] - Request-scoped upstream content loader
  * @returns {Promise<object|string[]|null>} - Parsed subscription content
  */
-export async function fetchSubscription(url, userAgent, subscriptionFetcher = fetchSubscriptionContent) {
+export async function fetchSubscription(url, _userAgent, subscriptionFetcher = fetchSubscriptionContent) {
     try {
-        const { text } = await subscriptionFetcher(url, userAgent);
+        const { text } = await subscriptionFetcher(url);
         const decodedText = decodeContent(text);
 
         return parseSubscriptionContent(decodedText);
@@ -139,13 +139,13 @@ export async function fetchSubscription(url, userAgent, subscriptionFetcher = fe
 /**
  * Fetch subscription content and detect its format without parsing
  * @param {string} url - The subscription URL to fetch
- * @param {string} userAgent - Optional User-Agent header
+ * @param {string} _userAgent - Retained for caller compatibility; never forwarded upstream
  * @param {Function} [subscriptionFetcher] - Request-scoped upstream content loader
  * @returns {Promise<{content: string, format: 'clash'|'singbox'|'surge'|'unknown', url: string, subscriptionUserinfo?: string}|null>}
  */
-export async function fetchSubscriptionWithFormat(url, userAgent, subscriptionFetcher = fetchSubscriptionContent) {
+export async function fetchSubscriptionWithFormat(url, _userAgent, subscriptionFetcher = fetchSubscriptionContent) {
     try {
-        const { text, subscriptionUserinfo } = await subscriptionFetcher(url, userAgent);
+        const { text, subscriptionUserinfo } = await subscriptionFetcher(url);
         const content = decodeContent(text);
         const format = detectFormat(content);
 

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSubscriptionFetcher } from '../src/services/subscriptionCache.js';
 import { MemoryKVAdapter } from '../src/adapters/kv/memoryKv.js';
+import { fetchSubscription, fetchSubscriptionWithFormat } from '../src/parsers/subscription/httpSubscriptionFetcher.js';
+import { ProxyParser } from '../src/parsers/ProxyParser.js';
+import { createHash } from 'node:crypto';
 
 const url = 'https://airport.example.com/sub?token=secret';
 const ua = 'test-agent';
@@ -40,7 +43,7 @@ describe('subscription cache', () => {
         expect(fetchMock).toHaveBeenCalledTimes(1);
         expect(put).toHaveBeenCalledTimes(1);
         expect(put).toHaveBeenCalledWith(
-            expect.stringMatching(/^subscription:v1:[a-f0-9]{64}$/),
+            expect.stringMatching(/^subscription:v2:[a-f0-9]{64}$/),
             JSON.stringify({ ...first, expiresAt }),
             { expirationTtl: 604800 }
         );
@@ -82,7 +85,7 @@ describe('subscription cache', () => {
         expect(kv.expirations.get(key).expireAt).toBe(Date.now() + sevenDaysMs);
     });
 
-    it('isolates full URLs and effective user agents', async () => {
+    it('isolates full URLs while sharing cached content across caller user agents', async () => {
         const kv = new MemoryKVAdapter();
         const fetchMock = mockFetch();
         await createSubscriptionFetcher({ kv })(url, ua);
@@ -90,8 +93,35 @@ describe('subscription cache', () => {
         await createSubscriptionFetcher({ kv })(url, 'different-agent');
         await createSubscriptionFetcher({ kv })(` ${url} `, ` ${ua} `);
 
-        expect(fetchMock).toHaveBeenCalledTimes(3);
-        expect(kv.store.size).toBe(3);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(kv.store.size).toBe(2);
+        expect(fetchMock.mock.calls.every(([, options]) => options.headers.get('User-Agent') === 'curl/7.74.0')).toBe(true);
+    });
+
+    it('does not fall back to previous UA-specific snapshots', async () => {
+        const kv = new MemoryKVAdapter();
+        const fetchMock = mockFetch();
+        const oldHash = createHash('sha256').update(JSON.stringify([url, ua])).digest('hex');
+        await kv.put(`subscription:v1:${oldHash}`, JSON.stringify({
+            text: 'UA-specific content',
+            expiresAt: Date.now() + sevenDaysMs
+        }), { expirationTtl: 604800 });
+
+        expect((await createSubscriptionFetcher({ kv })(url, ua)).text).toBe('original content');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        ['subscription parser', fetchSubscription],
+        ['format detector', fetchSubscriptionWithFormat],
+        ['protocol dispatcher', (url, ua) => ProxyParser.parse(url, ua)]
+    ])('uses the fixed UA without a cache loader in the %s', async (_name, parse) => {
+        const fetchMock = mockFetch();
+        await parse(url, 'mihomo/1.19.0');
+        await parse(url, 'sing-box/1.14.0');
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(fetchMock.mock.calls.every(([, options]) => options.headers.get('User-Agent') === 'curl/7.74.0')).toBe(true);
     });
 
     it('refreshes without reading the old snapshot and deduplicates within a request', async () => {
@@ -101,12 +131,13 @@ describe('subscription cache', () => {
         const get = vi.spyOn(kv, 'get');
         fetchMock.mockResolvedValueOnce(new Response('updated content'));
         const refresh = createSubscriptionFetcher({ kv, refresh: true });
-        const results = await Promise.all([refresh(url, ua), refresh(url, ua)]);
+        const results = await Promise.all([refresh(url, ua), refresh(url, 'different-agent')]);
 
         expect(results.map(result => result.text)).toEqual(['updated content', 'updated content']);
         expect(get).not.toHaveBeenCalled();
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(fetchMock.mock.calls[1][1].headers.get('Cache-Control')).toBe('no-cache');
+        expect(fetchMock.mock.calls[1][1].headers.get('User-Agent')).toBe('curl/7.74.0');
         expect(await createSubscriptionFetcher({ kv })(url, ua)).toEqual({ text: 'updated content' });
         expect(fetchMock).toHaveBeenCalledTimes(2);
     });

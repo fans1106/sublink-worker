@@ -249,7 +249,6 @@ export function createApp(bindings = {}) {
         const proxylist = inputString.split('\n');
         const finalProxyList = [];
         let subscriptionUserinfo;
-        const userAgent = c.req.query('ua') || getRequestHeader(c.req, 'User-Agent') || DEFAULT_USER_AGENT;
         const subscriptionFetcher = subscriptionFetcherFor(c);
 
         for (const proxy of proxylist) {
@@ -258,7 +257,7 @@ export function createApp(bindings = {}) {
 
             if (trimmedProxy.startsWith('http://') || trimmedProxy.startsWith('https://')) {
                 try {
-                    const { text, subscriptionUserinfo: fetchedUserinfo } = await subscriptionFetcher(trimmedProxy, userAgent);
+                    const { text, subscriptionUserinfo: fetchedUserinfo } = await subscriptionFetcher(trimmedProxy);
                     if (fetchedUserinfo && subscriptionUserinfo === undefined) {
                         subscriptionUserinfo = fetchedUserinfo;
                     }

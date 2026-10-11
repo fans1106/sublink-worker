@@ -1,12 +1,11 @@
 import { createHash } from 'node:crypto';
 
 const SUBSCRIPTION_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60;
+const UPSTREAM_USER_AGENT = 'curl/7.74.0';
 
-export async function fetchSubscriptionContent(url, userAgent, { refresh = false } = {}) {
-    const headers = new Headers();
-    if (userAgent) {
-        headers.set('User-Agent', userAgent);
-    }
+export async function fetchSubscriptionContent(url, { refresh = false } = {}) {
+    // Stable upstream responses let clients share a snapshot without forwarding their UA.
+    const headers = new Headers({ 'User-Agent': UPSTREAM_USER_AGENT });
     if (refresh) {
         headers.set('Cache-Control', 'no-cache');
     }
@@ -24,8 +23,9 @@ export function createSubscriptionFetcher({ kv = null, logger = console, refresh
     // Keep deduplication local to a conversion so refresh cannot reuse another request's fetch.
     const requests = new Map();
 
-    async function load(url, userAgent, identity) {
-        const key = kv ? `subscription:v1:${createHash('sha256').update(identity).digest('hex')}` : null;
+    async function load(url) {
+        // UA-dependent snapshots must not become the source for the shared URL cache.
+        const key = kv ? `subscription:v2:${createHash('sha256').update(url).digest('hex')}` : null;
         if (kv && !refresh) {
             try {
                 const stored = await kv.get(key);
@@ -42,7 +42,7 @@ export function createSubscriptionFetcher({ kv = null, logger = console, refresh
             }
         }
 
-        const result = await fetchSubscriptionContent(url, userAgent, { refresh });
+        const result = await fetchSubscriptionContent(url, { refresh });
         if (kv) {
             try {
                 // The timestamp also rejects legacy snapshots and stale KV reads after expiry.
@@ -55,14 +55,12 @@ export function createSubscriptionFetcher({ kv = null, logger = console, refresh
         return result;
     }
 
-    return (url, userAgent) => {
+    return (url) => {
         const trimmedUrl = url.trim();
-        const effectiveUserAgent = userAgent ? new Headers({ 'User-Agent': userAgent }).get('User-Agent') : '';
-        const identity = JSON.stringify([trimmedUrl, effectiveUserAgent]);
-        if (!requests.has(identity)) {
-            requests.set(identity, load(trimmedUrl, effectiveUserAgent, identity));
+        if (!requests.has(trimmedUrl)) {
+            requests.set(trimmedUrl, load(trimmedUrl));
         }
-        return requests.get(identity);
+        return requests.get(trimmedUrl);
     };
 }
 

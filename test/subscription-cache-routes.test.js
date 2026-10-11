@@ -3,6 +3,7 @@ import { createApp } from '../src/app/createApp.jsx';
 import { MemoryKVAdapter } from '../src/adapters/kv/memoryKv.js';
 import { createSubscriptionFetcher } from '../src/services/subscriptionCache.js';
 import { decodeBase64, encodeBase64 } from '../src/utils.js';
+import yaml from 'js-yaml';
 
 const remoteUrl = 'https://airport.example.com/sub?token=abc';
 const proxyUri = (name) => `ss://YWVzLTEyOC1nY206cGFzcw@example.com:443#${name}`;
@@ -70,6 +71,7 @@ describe('subscription cache routes', () => {
         expect(await responseContent(await app.request(url.href), route)).toContain('After');
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(fetchMock.mock.calls.every(([url]) => url === remoteUrl)).toBe(true);
+        expect(fetchMock.mock.calls.every(([, options]) => options.headers.get('User-Agent') === 'curl/7.74.0')).toBe(true);
     });
 
     it('shares upstream content across formats and app instances using the same KV', async () => {
@@ -77,11 +79,73 @@ describe('subscription cache routes', () => {
         const kv = new MemoryKVAdapter();
         for (const [route] of routes) {
             const app = createApp({ kv });
-            const response = await app.request(conversionUrl(route).href);
+            const url = conversionUrl(route);
+            url.searchParams.set('ua', `custom-${route}-agent`);
+            const response = await app.request(url.href, { headers: { 'User-Agent': `${route}/1.0` } });
             expect(response.status).toBe(200);
             expect(await responseContent(response, route)).toContain('Before');
         }
         expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(fetchMock.mock.calls[0][1].headers.get('User-Agent')).toBe('curl/7.74.0');
+    });
+
+    it('keeps client UA compatibility for Clash while sharing the upstream snapshot', async () => {
+        const { fetchMock } = mockSubscription();
+        const app = createApp({ kv: new MemoryKVAdapter() });
+        const url = conversionUrl('clash');
+        url.searchParams.delete('ua');
+        url.searchParams.set('selectedRules', JSON.stringify(['AI Services']));
+
+        for (const [ua, expectedFormat] of [['Clash/1.0', 'yaml'], ['mihomo/1.19.0', 'mrs']]) {
+            const response = await app.request(url.href, { headers: { 'User-Agent': ua } });
+            expect(response.status).toBe(200);
+            const config = yaml.load(await response.text());
+            expect(config['rule-providers']['category-ai-!cn'].format).toBe(expectedFormat);
+        }
+
+        url.searchParams.set('ua', 'Clash/1.0');
+        const overridden = await app.request(url.href, { headers: { 'User-Agent': 'mihomo/1.19.0' } });
+        expect(yaml.load(await overridden.text())['rule-providers']['category-ai-!cn'].format).toBe('yaml');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(fetchMock.mock.calls[0][1].headers.get('User-Agent')).toBe('curl/7.74.0');
+    });
+
+    it('keeps client version compatibility for Sing-Box while sharing the upstream snapshot', async () => {
+        const { fetchMock } = mockSubscription();
+        const app = createApp({ kv: new MemoryKVAdapter() });
+        const url = conversionUrl('singbox');
+        url.searchParams.delete('ua');
+
+        for (const version of ['1.11.4', '1.12.0', '1.14.0']) {
+            const response = await app.request(url.href, { headers: { 'User-Agent': `sing-box/${version}` } });
+            expect(response.status).toBe(200);
+            const config = await response.json();
+            if (version.startsWith('1.11')) {
+                expect(config.dns.servers[0]).toHaveProperty('address');
+            } else {
+                expect(config.dns.servers[0]).toHaveProperty('type');
+            }
+            expect(config.route.default_http_client).toBe(version.startsWith('1.14') ? 'rule-set-download' : undefined);
+        }
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(fetchMock.mock.calls[0][1].headers.get('User-Agent')).toBe('curl/7.74.0');
+    });
+
+    it.each(routes)('ignores explicit ua overrides during a %s refresh', async (route) => {
+        const { fetchMock } = mockSubscription();
+        const app = createApp({ kv: new MemoryKVAdapter() });
+        const url = conversionUrl(route);
+        for (const ua of ['mihomo/1.19.0', 'sing-box/1.14.0']) {
+            url.searchParams.set('ua', ua);
+            url.searchParams.set('refresh', 'true');
+            const response = await app.request(url.href, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            expect(response.status).toBe(200);
+        }
+        url.searchParams.set('ua', 'third-agent');
+        url.searchParams.delete('refresh');
+        expect((await app.request(url.href)).status).toBe(200);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(fetchMock.mock.calls.every(([, options]) => options.headers.get('User-Agent') === 'curl/7.74.0')).toBe(true);
     });
 
     it.each(routes)('refreshes %s through /%s/ short links', async (route, prefix) => {
@@ -156,6 +220,7 @@ describe('subscription cache routes', () => {
         expect((await app.request(url.href)).status).toBe(200);
         expect((await createSubscriptionFetcher({ kv })(nestedUrl, 'cache-test-agent')).text).toContain('After');
         expect(fetchMock).toHaveBeenCalledTimes(4);
+        expect(fetchMock.mock.calls.every(([, options]) => options.headers.get('User-Agent') === 'curl/7.74.0')).toBe(true);
     });
 
     it('deduplicates repeated URLs even during a hard refresh', async () => {

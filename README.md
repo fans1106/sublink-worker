@@ -72,12 +72,16 @@ Sing-Box • Clash • Xray/V2Ray • Surge
 HTTP(S) subscription responses are cached in the configured KV store for 7 days
 after each successful fetch. Expired or missing snapshots are fetched again on
 the next conversion. Existing snapshots without expiration metadata are rebuilt
-on first access. The cache is shared by subscription URL (including query
-parameters) and the effective upstream User-Agent, across users and output
-formats. Each conversion still builds its configuration using the current rules
-and options. Node and Vercel's memory fallback only retains cached content for
-the lifetime of that process; use Redis or another persistent KV for durable
-caching. Without KV, subscriptions are fetched on every conversion.
+on first access. Upstream requests always use `User-Agent: curl/7.74.0`. The
+cache is shared by the full subscription URL (including query parameters),
+across client User-Agents, users and output formats. Client User-Agent headers
+and existing local UA settings are used only for local configuration generation;
+the `ua` query parameter never changes upstream headers or the cache key.
+Previous UA-specific cache entries are not reused; the first access builds a new
+URL-based snapshot. Each conversion still builds its configuration using the
+current rules and options. Node and Vercel's memory fallback only retains cached
+content for the lifetime of that process; use Redis or another persistent KV for
+durable caching. Without KV, subscriptions are fetched on every conversion.
 
 Add `refresh=true` to a conversion URL or a short link to fetch fresh upstream
 content and replace the cache with a new 7-day lifetime, for example:
