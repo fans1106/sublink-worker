@@ -16,7 +16,10 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
     }
 
     setSubscriptionUrl(url) {
-        this.subscriptionUrl = url;
+        const subscriptionUrl = new URL(url);
+        // A manual refresh must not turn every managed update into another refresh.
+        subscriptionUrl.searchParams.delete('refresh');
+        this.subscriptionUrl = subscriptionUrl.href;
         return this;
     }
 

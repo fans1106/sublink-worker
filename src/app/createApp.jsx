@@ -12,8 +12,9 @@ import { SurgeConfigBuilder } from '../builders/SurgeConfigBuilder.js';
 import { createTranslator, resolveLanguage } from '../i18n/index.js';
 import { encodeBase64, tryDecodeSubscriptionLines } from '../utils.js';
 import { APP_NAME, APP_SUBTITLE } from '../constants.js';
-import { ShortLinkService } from '../services/shortLinkService.js';
+import { ShortLinkService, normalizeShortLinkQuery } from '../services/shortLinkService.js';
 import { ConfigStorageService } from '../services/configStorageService.js';
+import { createSubscriptionFetcher } from '../services/subscriptionCache.js';
 import { ServiceError, MissingDependencyError, InvalidPayloadError } from '../services/errors.js';
 import { normalizeRuntime } from '../runtime/runtimeConfig.js';
 import { PREDEFINED_RULE_SETS, SING_BOX_CONFIG, SING_BOX_CONFIG_V1_11 } from '../config/index.js';
@@ -30,12 +31,20 @@ export function createApp(bindings = {}) {
     };
 
     const app = new Hono();
+    const subscriptionFetcherFor = (c) => createSubscriptionFetcher({
+        kv: runtime.kv,
+        logger: runtime.logger,
+        refresh: parseBooleanFlag(c.req.query('refresh'))
+    });
 
     app.use('*', async (c, next) => {
         const acceptLanguage = getRequestHeader(c.req, 'Accept-Language');
         const lang = c.req.query('lang') || acceptLanguage?.split(',')[0] || 'zh-CN';
         c.set('lang', lang);
         c.set('t', createTranslator(lang));
+        if (parseBooleanFlag(c.req.query('refresh'))) {
+            c.header('Cache-Control', 'no-store');
+        }
         await next();
     });
 
@@ -118,7 +127,7 @@ export function createApp(bindings = {}) {
                 chainConfig,
                 c.req.query('auto_select_interval')
             );
-            await builder.build();
+            await builder.build(subscriptionFetcherFor(c));
             const userinfo = builder.getSubscriptionUserinfo();
             if (userinfo) {
                 c.header('subscription-userinfo', userinfo);
@@ -169,7 +178,7 @@ export function createApp(bindings = {}) {
                 chainConfig,
                 c.req.query('auto_select_interval')
             );
-            await builder.build();
+            await builder.build(subscriptionFetcherFor(c));
             const userinfo = builder.getSubscriptionUserinfo();
             const headers = { 'Content-Type': 'text/yaml; charset=utf-8' };
             if (userinfo) {
@@ -216,7 +225,7 @@ export function createApp(bindings = {}) {
                 c.req.query('auto_select_interval')
             );
             builder.setSubscriptionUrl(c.req.url);
-            await builder.build();
+            await builder.build(subscriptionFetcherFor(c));
 
             const userinfo = builder.getSubscriptionUserinfo();
             if (userinfo) {
@@ -241,7 +250,7 @@ export function createApp(bindings = {}) {
         const finalProxyList = [];
         let subscriptionUserinfo;
         const userAgent = c.req.query('ua') || getRequestHeader(c.req, 'User-Agent') || DEFAULT_USER_AGENT;
-        const headers = { 'User-Agent': userAgent };
+        const subscriptionFetcher = subscriptionFetcherFor(c);
 
         for (const proxy of proxylist) {
             const trimmedProxy = proxy.trim();
@@ -249,12 +258,10 @@ export function createApp(bindings = {}) {
 
             if (trimmedProxy.startsWith('http://') || trimmedProxy.startsWith('https://')) {
                 try {
-                    const response = await fetch(trimmedProxy, { method: 'GET', headers });
-                    const fetchedUserinfo = response.headers.get('subscription-userinfo');
+                    const { text, subscriptionUserinfo: fetchedUserinfo } = await subscriptionFetcher(trimmedProxy, userAgent);
                     if (fetchedUserinfo && subscriptionUserinfo === undefined) {
                         subscriptionUserinfo = fetchedUserinfo;
                     }
-                    const text = await response.text();
                     let processed = tryDecodeSubscriptionLines(text, { decodeUriComponent: true });
                     if (!Array.isArray(processed)) processed = [processed];
                     finalProxyList.push(...processed.filter(item => typeof item === 'string' && item.trim() !== ''));
@@ -310,8 +317,9 @@ export function createApp(bindings = {}) {
             const originalParam = await shortLinks.resolveShortCode(code);
             if (!originalParam) return c.text('Short URL not found', 404);
 
-            const url = new URL(c.req.url);
-            return c.redirect(`${url.origin}/${prefix}${originalParam}`);
+            const url = new URL(`/${prefix}`, c.req.url);
+            url.search = normalizeShortLinkQuery(originalParam, c.req.query('refresh'));
+            return c.redirect(url.href);
         } catch (error) {
             return handleError(c, error, runtime.logger);
         }
@@ -418,8 +426,9 @@ export function createApp(bindings = {}) {
             if (!originalParam) return c.text(t('shortUrlNotFound'), 404);
 
             const mapping = { b: 'singbox', c: 'clash', x: 'xray', s: 'surge' };
-            const originalUrl = `${urlObj.origin}/${mapping[prefix]}${originalParam}`;
-            return c.json({ originalUrl });
+            const originalUrl = new URL(`/${mapping[prefix]}`, urlObj.origin);
+            originalUrl.search = normalizeShortLinkQuery(originalParam, urlObj.searchParams.get('refresh') ?? undefined);
+            return c.json({ originalUrl: originalUrl.href });
         } catch (error) {
             return handleError(c, error, runtime.logger);
         }

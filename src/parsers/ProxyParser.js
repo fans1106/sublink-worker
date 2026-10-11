@@ -22,7 +22,7 @@ const protocolParsers = {
 };
 
 export class ProxyParser {
-    static async parse(url, userAgent) {
+    static async parse(url, userAgent, subscriptionFetcher) {
         if (!url || typeof url !== 'string') {
             return undefined;
         }
@@ -32,6 +32,6 @@ export class ProxyParser {
         if (!parser) {
             return undefined;
         }
-        return parser(trimmed, userAgent);
+        return parser(trimmed, userAgent, subscriptionFetcher);
     }
 }

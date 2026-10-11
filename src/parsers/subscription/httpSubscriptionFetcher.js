@@ -1,5 +1,6 @@
 import { decodeBase64 } from '../../utils.js';
 import { parseSubscriptionContent } from './subscriptionContentParser.js';
+import { fetchSubscriptionContent } from '../../services/subscriptionCache.js';
 
 const SUBSCRIPTION_URI_PATTERN = /^(ss|vmess|vless|hysteria|hysteria2|hy2|trojan|tuic|anytls|http|https):\/\//i;
 
@@ -120,22 +121,12 @@ function detectFormat(content) {
  * Fetch subscription content from a URL and parse it
  * @param {string} url - The subscription URL to fetch
  * @param {string} userAgent - Optional User-Agent header
+ * @param {Function} [subscriptionFetcher] - Request-scoped upstream content loader
  * @returns {Promise<object|string[]|null>} - Parsed subscription content
  */
-export async function fetchSubscription(url, userAgent) {
+export async function fetchSubscription(url, userAgent, subscriptionFetcher = fetchSubscriptionContent) {
     try {
-        const headers = new Headers();
-        if (userAgent) {
-            headers.set('User-Agent', userAgent);
-        }
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: headers
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const text = await response.text();
+        const { text } = await subscriptionFetcher(url, userAgent);
         const decodedText = decodeContent(text);
 
         return parseSubscriptionContent(decodedText);
@@ -149,26 +140,14 @@ export async function fetchSubscription(url, userAgent) {
  * Fetch subscription content and detect its format without parsing
  * @param {string} url - The subscription URL to fetch
  * @param {string} userAgent - Optional User-Agent header
+ * @param {Function} [subscriptionFetcher] - Request-scoped upstream content loader
  * @returns {Promise<{content: string, format: 'clash'|'singbox'|'surge'|'unknown', url: string, subscriptionUserinfo?: string}|null>}
  */
-export async function fetchSubscriptionWithFormat(url, userAgent) {
+export async function fetchSubscriptionWithFormat(url, userAgent, subscriptionFetcher = fetchSubscriptionContent) {
     try {
-        const headers = new Headers();
-        if (userAgent) {
-            headers.set('User-Agent', userAgent);
-        }
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: headers
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const text = await response.text();
+        const { text, subscriptionUserinfo } = await subscriptionFetcher(url, userAgent);
         const content = decodeContent(text);
         const format = detectFormat(content);
-
-        const subscriptionUserinfo = response.headers.get('subscription-userinfo') || undefined;
 
         return { content, format, url, subscriptionUserinfo };
     } catch (error) {

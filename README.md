@@ -60,11 +60,42 @@ Sing-Box • Clash • Xray/V2Ray • Surge
 
 ### Core Capabilities
 - Import subscriptions from multiple sources
+- Cache remote subscription content with explicit refresh support
 - Generate fixed/random short links (KV-based)
 - Light/Dark theme toggle
 - Flexible API for script automation
 - Multi-language support (Chinese, English, Persian, Russian)
 - Web interface with predefined rule sets and customizable policy groups
+
+### Subscription Cache
+
+HTTP(S) subscription responses are cached in the configured KV store without an
+expiration time. The cache is shared by subscription URL (including query
+parameters) and the effective upstream User-Agent, across users and output
+formats. Each conversion still builds its configuration using the current rules
+and options. Node and Vercel's memory fallback only retains cached content for
+the lifetime of that process; use Redis or another persistent KV for durable
+caching. Without KV, subscriptions are fetched on every conversion.
+
+Add `refresh=true` to a conversion URL or a short link to fetch fresh upstream
+content and replace the cache, for example:
+
+```text
+/clash?config=https%3A%2F%2Fairport.example%2Fsub%3Ftoken%3Dabc&refresh=true
+/c/your-code?refresh=true
+```
+
+This works with `/singbox`, `/clash`, `/surge`, `/xray` and their `/b/`, `/c/`,
+`/s/`, `/x/` short links. An omitted refresh parameter or `refresh=false` uses
+the existing cache. Refresh is not saved in short links or Surge's managed
+update URL, and is not appended to upstream subscription URLs. Failed refreshes
+leave the previous cache intact but do not serve it for that refresh request.
+KV failures fall back to fetching upstream content.
+
+Node lists and `subscription-userinfo` (traffic and expiration information) stay
+at their last fetched values until an explicit refresh. Cloudflare KV updates
+may take time to propagate across regions. Remote providers fetched directly by
+the proxy client are outside this cache.
 
 ## 🤝 Contributing
 

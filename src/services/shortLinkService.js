@@ -19,7 +19,7 @@ export class ShortLinkService {
         const shortCode = providedCode || generateWebPath();
         const ttl = this.options.shortLinkTtlSeconds;
         const putOptions = ttl ? { expirationTtl: ttl } : undefined;
-        await kv.put(shortCode, queryString, putOptions);
+        await kv.put(shortCode, normalizeShortLinkQuery(queryString), putOptions);
         return shortCode;
     }
 
@@ -27,4 +27,15 @@ export class ShortLinkService {
         const kv = this.ensureKv();
         return kv.get(code);
     }
+}
+
+export function normalizeShortLinkQuery(queryString, refresh) {
+    const params = new URLSearchParams(queryString);
+    // Refresh belongs to the current visit, including for previously stored short links.
+    params.delete('refresh');
+    if (refresh !== undefined) {
+        params.set('refresh', refresh);
+    }
+    const query = params.toString();
+    return query ? `?${query}` : '';
 }
