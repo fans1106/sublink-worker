@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app/createApp.jsx';
 import { MemoryKVAdapter } from '../src/adapters/kv/memoryKv.js';
 import { createSubscriptionFetcher } from '../src/services/subscriptionCache.js';
@@ -30,9 +30,14 @@ async function responseContent(response, route) {
 }
 
 describe('subscription cache routes', () => {
+    beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    });
+
     afterEach(() => {
         vi.unstubAllGlobals();
         vi.restoreAllMocks();
+        vi.useRealTimers();
     });
 
     it.each(routes)('caches and refreshes %s conversions', async (route) => {

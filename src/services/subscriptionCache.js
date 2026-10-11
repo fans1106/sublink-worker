@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+const SUBSCRIPTION_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60;
+
 export async function fetchSubscriptionContent(url, userAgent, { refresh = false } = {}) {
     const headers = new Headers();
     if (userAgent) {
@@ -30,8 +32,9 @@ export function createSubscriptionFetcher({ kv = null, logger = console, refresh
                 if (stored !== null) {
                     const cached = JSON.parse(stored);
                     if (typeof cached?.text === 'string' &&
+                        Number.isFinite(cached.expiresAt) && cached.expiresAt > Date.now() &&
                         (cached.subscriptionUserinfo === undefined || typeof cached.subscriptionUserinfo === 'string')) {
-                        return cached;
+                        return { text: cached.text, subscriptionUserinfo: cached.subscriptionUserinfo };
                     }
                 }
             } catch {
@@ -42,8 +45,9 @@ export function createSubscriptionFetcher({ kv = null, logger = console, refresh
         const result = await fetchSubscriptionContent(url, userAgent, { refresh });
         if (kv) {
             try {
-                // Subscription snapshots stay valid until an explicit refresh replaces them.
-                await kv.put(key, JSON.stringify(result));
+                // The timestamp also rejects legacy snapshots and stale KV reads after expiry.
+                const cached = { ...result, expiresAt: Date.now() + SUBSCRIPTION_CACHE_TTL_SECONDS * 1000 };
+                await kv.put(key, JSON.stringify(cached), { expirationTtl: SUBSCRIPTION_CACHE_TTL_SECONDS });
             } catch {
                 logger.warn('Failed to write subscription cache');
             }
