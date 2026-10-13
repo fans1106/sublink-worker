@@ -34,6 +34,9 @@ export function convertSurgeIniToJson(content) {
         const sectionMatch = line.match(/^\[(.+)]$/);
         if (sectionMatch) {
             currentSection = sectionMatch[1].trim();
+            const sectionKey = currentSection.toLowerCase();
+            if (sectionKey === 'general' || sectionKey === 'replica') ensureObject(sectionKey);
+            else ensureArray({ proxy: 'proxies', 'proxy group': 'proxy-groups', rule: 'rules' }[sectionKey] || sectionKey);
             continue;
         }
         if (!currentSection) {
@@ -59,7 +62,7 @@ export function convertSurgeIniToJson(content) {
         }
     }
 
-    if (!config.general && !config.replica && !config.proxies && !config['proxy-groups']) {
+    if (Object.keys(config).length === 0) {
         throw new Error('Unable to parse Surge INI content');
     }
 

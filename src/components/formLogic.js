@@ -36,6 +36,9 @@ export const formLogicFn = (t) => {
                 const sectionMatch = line.match(/^\[(.+)]$/);
                 if (sectionMatch) {
                     currentSection = sectionMatch[1].trim();
+                    const sectionKey = currentSection.toLowerCase();
+                    if (sectionKey === 'general' || sectionKey === 'replica') ensureObject(sectionKey);
+                    else ensureArray({ proxy: 'proxies', 'proxy group': 'proxy-groups', rule: 'rules' }[sectionKey] || sectionKey);
                     continue;
                 }
                 if (!currentSection) continue;
@@ -58,7 +61,7 @@ export const formLogicFn = (t) => {
                     ensureArray(sectionName).push(line);
                 }
             }
-            if (!config.general && !config.replica && !config.proxies && !config['proxy-groups']) {
+            if (Object.keys(config).length === 0) {
                 throw new Error('Unable to parse Surge INI content');
             }
             return config;
@@ -450,24 +453,28 @@ export const formLogicFn = (t) => {
                 }
 
                 try {
+                    let parsed;
                     if (this.configType === 'clash') {
                         if (!window.jsyaml || !window.jsyaml.load) {
                             throw new Error(window.APP_TRANSLATIONS.parserUnavailable || 'Parser unavailable. Please refresh and try again.');
                         }
-                        window.jsyaml.load(content);
+                        parsed = window.jsyaml.load(content);
                         this.configValidationState = 'success';
                         this.configValidationMessage =
                             window.APP_TRANSLATIONS.validYamlConfig || 'YAML config is valid';
                     } else if (this.configType === 'surge') {
-                        parseSurgeConfigInput(this.configEditor);
+                        parsed = parseSurgeConfigInput(this.configEditor).configObject;
                         this.configValidationState = 'success';
                         this.configValidationMessage =
                             window.APP_TRANSLATIONS.validJsonConfig || 'JSON config is valid';
                     } else {
-                        JSON.parse(content);
+                        parsed = JSON.parse(content);
                         this.configValidationState = 'success';
                         this.configValidationMessage =
                             window.APP_TRANSLATIONS.validJsonConfig || 'JSON config is valid';
+                    }
+                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                        throw new Error('Base config must be an object');
                     }
                 } catch (error) {
                     this.configValidationState = 'error';

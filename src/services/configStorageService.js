@@ -1,3 +1,4 @@
+import { assertConfigObject } from '../builders/helpers/configOverrides.js';
 import yaml from 'js-yaml';
 import { generateWebPath } from '../utils.js';
 import { InvalidPayloadError, MissingDependencyError } from './errors.js';
@@ -36,7 +37,8 @@ export class ConfigStorageService {
         const configString = this.serializeConfig(type, content);
 
         // Validate string is JSON before storing
-        JSON.parse(configString);
+        const parsed = JSON.parse(configString);
+        if (type !== 'preset') assertConfigObject(parsed);
 
         const ttlSeconds = type === 'preset' ? undefined : this.options.configTtlSeconds;
         const putOptions = ttlSeconds ? { expirationTtl: ttlSeconds } : undefined;

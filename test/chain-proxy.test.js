@@ -118,7 +118,7 @@ describe('OUT source chain proxy', () => {
             ]);
             for (const [name, server] of [['Exit Node', 'exit.example'], ['Exit Two', 'exit-two.example']]) {
                 expect(node(name).entry).toBeUndefined();
-                const manual = node(`🔧 指定入口 · ${name}`);
+                const manual = node(`🛫 入口选择 · ${name}`);
                 expect(manual.entry).toBe('🛫 入口选择');
                 expect(manual.server).toBe(server);
                 expect(group(`🎯 落地 · ${name}`).members).toEqual([
@@ -194,7 +194,7 @@ describe('OUT source chain proxy', () => {
         const builder = makeBuilder(platform, text, parseChainConfig({ version: 2, exit: { line: 1 } }, text), false);
         await builder.build();
         const result = graph(builder);
-        expect(result.nodes.find(n => n.name === '🔧 指定入口 · Exit VLESS').entry).toBe('🛫 入口选择');
+        expect(result.nodes.find(n => n.name === '🛫 入口选择 · Exit VLESS').entry).toBe('🛫 入口选择');
         expect(result.groups.find(g => g.name === '🛫 入口选择').members).toEqual(['Entry VLESS']);
         expect(result.groups.some(g => ['urltest', 'url-test'].includes(g.type))).toBe(false);
         expectValidGraph(result);

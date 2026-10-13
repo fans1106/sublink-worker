@@ -1,3 +1,5 @@
+import { initializeConfig, applyConfigOverrides } from './helpers/configOverrides.js';
+import { validateConfigReferences } from './helpers/configValidation.js';
 import yaml from 'js-yaml';
 import { CLASH_CONFIG, generateRules, generateClashRuleSets, getOutbounds, PREDEFINED_RULE_SETS, DIRECT_DEFAULT_RULES } from '../config/index.js';
 import { BaseConfigBuilder } from './BaseConfigBuilder.js';
@@ -49,10 +51,9 @@ function getClashUdpValue(proxy, defaultEnabled = true) {
 
 export class ClashConfigBuilder extends BaseConfigBuilder {
     constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry = false, enableClashUI = false, externalController, externalUiDownloadUrl, includeAutoSelect = true, chainConfig = null, autoSelectInterval) {
-        if (!baseConfig) {
-            baseConfig = CLASH_CONFIG;
-        }
-        super(inputString, baseConfig, lang, userAgent, groupByCountry, includeAutoSelect, chainConfig, autoSelectInterval);
+        super(inputString, initializeConfig(CLASH_CONFIG, baseConfig, 'clash'), lang, userAgent, groupByCountry, includeAutoSelect, chainConfig, autoSelectInterval);
+        this.configOverrides = baseConfig;
+        this.configFormat = 'clash';
         this.selectedRules = selectedRules;
         this.customRules = customRules;
         this.countryGroupNames = [];
@@ -483,6 +484,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
     }
 
     formatConfig() {
+        if (this.formattedConfig !== undefined) return this.formattedConfig;
         const rules = this.generateRules();
         const useMrs = supportsMrsFormat(this.userAgent);
         const { site_rule_providers, ip_rule_providers } = generateClashRuleSets(this.selectedRules, this.customRules, useMrs);
@@ -500,14 +502,16 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
             };
         }
 
-        this.config['proxy-groups'] = this.orderGroups(this.config['proxy-groups'] || [], group => group.name);
-        sanitizeClashProxyGroups(this.config);
-        this.validateProxyGroups();
-
         this.config.rules = [
             ...ruleResults,
             `MATCH,${this.t('outboundNames.Fall Back')}`
         ];
+
+        this.config = applyConfigOverrides(this.config, this.configOverrides, 'clash');
+        validateConfigReferences(this.config, 'clash');
+        sanitizeClashProxyGroups(this.config);
+        this.validateProxyGroups();
+        this.config['proxy-groups'] = this.orderGroups(this.config['proxy-groups'] || [], group => group.name);
 
         // Enable Clash UI (external controller/dashboard) when requested or when custom UI params are provided
         if (this.enableClashUI || this.externalController || this.externalUiDownloadUrl) {
@@ -530,6 +534,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
             this.config['secret'] = secret;
         }
 
-        return yaml.dump(this.config);
+        this.formattedConfig = yaml.dump(this.config);
+        return this.formattedConfig;
     }
 }

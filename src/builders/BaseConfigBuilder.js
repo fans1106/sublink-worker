@@ -1,3 +1,4 @@
+import { mergeNodeOverrides } from './helpers/configOverrides.js';
 import { ProxyParser } from '../parsers/index.js';
 import { createStableProviderName, deepCopy, tryDecodeSubscriptionLines, decodeBase64 } from '../utils.js';
 import { createTranslator } from '../i18n/index.js';
@@ -45,6 +46,7 @@ export class BaseConfigBuilder {
         this.publicGroupNames.forEach(name => this.reservedGroupNames.add(name));
         const customItems = await this.parseCustomItems();
         this.addCustomItems(customItems);
+        mergeNodeOverrides(this.config, this.configOverrides, this.configFormat);
         this.originalProxyNames = new Set(this.getProxyList());
         this.ordinaryGroupName = this.reserveGroupName(this.t('ordinaryProxy'));
         this.allNodesGroupName = this.reserveGroupName(this.t('outboundNames.Manual Switch'));

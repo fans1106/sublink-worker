@@ -1,5 +1,7 @@
+import { initializeConfig, applyConfigOverrides } from './helpers/configOverrides.js';
+import { validateConfigReferences } from './helpers/configValidation.js';
 
-import { SING_BOX_CONFIG, generateRuleSets, generateRules, getOutbounds, PREDEFINED_RULE_SETS, DIRECT_DEFAULT_RULES, REJECT_ACTION_RULES } from '../config/index.js';
+import { SING_BOX_CONFIG, SING_BOX_CONFIG_V1_11, generateRuleSets, generateRules, getOutbounds, PREDEFINED_RULE_SETS, DIRECT_DEFAULT_RULES, REJECT_ACTION_RULES } from '../config/index.js';
 import { BaseConfigBuilder } from './BaseConfigBuilder.js';
 import { groupProxiesByCountry } from '../utils.js';
 import { addProxyWithDedup } from './helpers/proxyHelpers.js';
@@ -15,9 +17,12 @@ const ANYTLS_OPTION_KEYS = {
 
 export class SingboxConfigBuilder extends BaseConfigBuilder {
     constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry = false, enableClashUI = false, externalController, externalUiDownloadUrl, singboxVersion = '1.12', includeAutoSelect = true, chainConfig = null, autoSelectInterval) {
-        const resolvedBaseConfig = baseConfig ?? SING_BOX_CONFIG;
+        const defaults = singboxVersion === '1.11' ? SING_BOX_CONFIG_V1_11 : SING_BOX_CONFIG;
+        const resolvedBaseConfig = initializeConfig(defaults, baseConfig, 'singbox');
         super(inputString, resolvedBaseConfig, lang, userAgent, groupByCountry, includeAutoSelect, chainConfig, autoSelectInterval);
 
+        this.configOverrides = baseConfig;
+        this.configFormat = 'singbox';
         this.selectedRules = selectedRules;
         this.customRules = customRules;
         this.countryGroupNames = [];
@@ -338,7 +343,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
         }
     }
 
-    sanitizeLegacySpecialOutbounds() {
+    sanitizeLegacySpecialOutbounds(removeEmptyGroups = true) {
         const legacyTags = new Set(
             (this.config.outbounds || [])
                 .filter(outbound => outbound?.type === 'block' || outbound?.type === 'dns')
@@ -356,7 +361,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
                 return outbound;
             })
             .filter(outbound => {
-                if (outbound?.type !== 'selector' && outbound?.type !== 'urltest') return true;
+                if (!removeEmptyGroups || (outbound?.type !== 'selector' && outbound?.type !== 'urltest')) return true;
                 return outbound.outbounds?.length > 0 || outbound.providers?.length > 0;
             });
     }
@@ -394,6 +399,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
     }
 
     formatConfig() {
+        if (this.formattedConfig !== undefined) return this.formattedConfig;
         const rules = generateRules(this.selectedRules, this.customRules);
         const { site_rule_sets, ip_rule_sets } = generateRuleSets(this.selectedRules, this.customRules);
 
@@ -483,6 +489,9 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
 
         this.config.route.auto_detect_interface = true;
         this.config.route.final = this.t('outboundNames.Fall Back');
+        this.config = applyConfigOverrides(this.config, this.configOverrides, 'singbox');
+        this.sanitizeLegacySpecialOutbounds(false);
+        this.configureRuleSetDownload();
         // 如果启用了 Clash UI，添加配置
         // 如果启用 Clash UI 或传入了自定义参数，添加/覆盖 Clash API 配置
         if (this.enableClashUI || this.externalController || this.externalUiDownloadUrl) {
@@ -513,7 +522,9 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
                 default_mode: clashMode
             };
         }
+        validateConfigReferences(this.config, 'singbox', this.singboxVersion);
         this.config.outbounds = this.orderGroups(this.config.outbounds, outbound => outbound.tag);
-        return this.config;
+        this.formattedConfig = this.config;
+        return this.formattedConfig;
     }
 }

@@ -289,6 +289,7 @@ export const Form = (props) => {
               </select>
           </div>
             
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">{t('baseConfigTooltip')}</p>
             <ValidatedTextarea
               id="configEditor"
               name="configEditor"

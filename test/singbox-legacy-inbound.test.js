@@ -71,7 +71,7 @@ describe('sing-box 1.13+ compatibility: no legacy inbound fields', () => {
 
     it('built config (v1.11) should have sniff as route rule action, not on inbounds', async () => {
         const builder = new SingboxConfigBuilder(
-            sampleInput, [], [], SING_BOX_CONFIG_V1_11, 'zh-CN', null,
+            sampleInput, [], [], null, 'zh-CN', null,
             false, false, null, null, '1.11'
         );
         const result = await builder.build();
@@ -108,9 +108,8 @@ describe('sing-box 1.13+ compatibility: no legacy inbound fields', () => {
         );
         const result = await builder.build();
 
-        // Route rules must still have sniff action
-        const sniffRule = result.route.rules.find(r => r.action === 'sniff');
-        expect(sniffRule).toBeDefined();
+        // Explicit rule tables replace generated actions as well as generated routing rules.
+        expect(result.route.rules).toEqual([]);
 
         const legacyOutbounds = result.outbounds.filter(outbound => LEGACY_SPECIAL_OUTBOUNDS.includes(outbound.type));
         expect(legacyOutbounds).toEqual([]);

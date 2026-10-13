@@ -17,7 +17,7 @@ import { ConfigStorageService } from '../services/configStorageService.js';
 import { createSubscriptionFetcher } from '../services/subscriptionCache.js';
 import { ServiceError, MissingDependencyError, InvalidPayloadError } from '../services/errors.js';
 import { normalizeRuntime } from '../runtime/runtimeConfig.js';
-import { PREDEFINED_RULE_SETS, SING_BOX_CONFIG, SING_BOX_CONFIG_V1_11 } from '../config/index.js';
+import { PREDEFINED_RULE_SETS } from '../config/index.js';
 import { parseChainConfig } from '../chains/chainConfig.js';
 import { normalizeFormPreset } from '../presets/formPreset.js';
 
@@ -102,7 +102,7 @@ export function createApp(bindings = {}) {
             const requestUserAgent = getRequestHeader(c.req, 'User-Agent');
             const singboxConfigVersion = resolveSingboxConfigVersion(requestedSingboxVersion, requestUserAgent);
 
-            let baseConfig = singboxConfigVersion === '1.11' ? SING_BOX_CONFIG_V1_11 : SING_BOX_CONFIG;
+            let baseConfig;
             if (configId?.startsWith('singbox_')) {
                 const storage = requireConfigStorage(services.configStorage);
                 const storedConfig = await storage.getConfigById(configId);

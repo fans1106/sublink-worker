@@ -103,11 +103,58 @@ at their last fetched values until expiration or an explicit refresh. Cloudflare
 KV updates may take time to propagate across regions. Remote providers fetched
 directly by the proxy client are outside this cache.
 
+### Base Config Overrides
+
+The **Base Config Settings** editor and matching `configId` apply partial overrides
+to the built-in Clash, Sing-Box or Surge template. You can upload just the fields
+you want to change; existing stored configs use the same merge behavior.
+
+- Scalars override defaults, including `false` and `0`; nested objects merge recursively.
+- Ordinary arrays replace the whole field, including `[]` to clear it.
+- Named lists (proxies, groups, Sing-Box inbounds, DNS servers, rule-sets, outbound
+  providers and HTTP clients) merge by `name` or `tag`. Omitted entry fields remain;
+  new entries are appended. Changing an entry's `type` replaces the whole entry.
+  An empty named list adds no changes; it does not remove generated nodes or groups.
+- Group member arrays replace their existing members. Added inline proxy nodes are
+  available to generated selectors. Group overrides apply after generation, then
+  the normal display order is applied.
+- `rules` replaces the entire generated rule table. Use `prepend-rules` or
+  `append-rules` to add rules while preserving generated rules. Appended Clash/Surge
+  rules go before the first `MATCH`/`FINAL` fallback. Sing-Box uses `route.rules` and
+  accepts these additions inside `route` (preferred) or at the root; route-level
+  additions take precedence. Appended rules run before `route.final`.
+- Explicit `external_controller` and `external_ui_download_url` URL parameters take
+  precedence over the corresponding overrides.
+
+For example, this Clash override keeps the default Fake-IP settings, DNS policies,
+subscription nodes and routing rules:
+
+```yaml
+log-level: warning
+dns:
+  nameserver:
+    - https://dns.google/dns-query
+prepend-rules:
+  - DOMAIN-SUFFIX,example.com,DIRECT
+```
+
+Surge accepts JSON or INI in the editor. Proxy INI entries replace same-name
+entries; groups also accept partial JSON objects. To add rules in INI, use
+`[prepend-rules]` / `[append-rules]` sections. Providing `[Rule]` replaces the rule
+table. Additional sections such as `[Host]` are preserved in the output.
+
+Local node/group references, provider references, rule targets and cycles are
+checked before output, as are Sing-Box DNS references and the supported DNS/provider/
+HTTP-client version tiers. Invalid overrides return HTTP 400. Remote provider node
+names remain the client's responsibility. These checks are not a complete client
+schema validator. `prepend-rules` / `append-rules` are Sublink Worker extensions,
+not a claim of full compatibility with any client's merge syntax.
+
 ### Subscription Groups
 
 Imported subscriptions and pasted configs contribute only proxy nodes. Their
 original groups, DNS settings, rules and other configuration fields are ignored;
-the built-in template or your selected base config supplies those settings.
+the built-in template and your base config overrides supply those settings.
 
 Clash, Sing-Box and Surge automatically create a selector for each full remote
 subscription URL. Groups are named `📥 airport.example`; different URLs on the
@@ -127,8 +174,8 @@ Auto Select and their source groups. Each source group references only its own
 provider. Xray URI lists do not support groups.
 
 With chain proxy enabled, Node Select defaults to Chain Proxy. Choose a landing
-there, then choose Auto Entry or Manual Entry for that landing. Auto Entry measures
-each complete entry-to-landing path and keeps the landing fixed. Manual Entry uses
+there, then choose Auto Entry or Entry Selection for that landing. Auto Entry measures
+each complete entry-to-landing path and keeps the landing fixed. The per-landing Entry Selection option uses
 the shared Entry Selection group, which contains only non-OUT nodes. Original OUT
 nodes remain available as single-hop proxies through Ordinary Proxy and source
 groups. Ordinary Auto Select always tests all original nodes, including OUT nodes.
