@@ -2,6 +2,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { createApp } from '../src/app/createApp.jsx';
 import { MemoryKVAdapter } from '../src/adapters/kv/memoryKv.js';
 import { ConfigStorageService } from '../src/services/configStorageService.js';
+import yaml from 'js-yaml';
 
 describe('saved override lifetime', () => {
     afterEach(() => vi.useRealTimers());
@@ -50,6 +51,34 @@ describe('saved override reuse', () => {
     it('uses SHA-256 of canonical JSON for its ID', async () => {
         const storage = new ConfigStorageService(new MemoryKVAdapter());
         expect(await storage.saveConfig('clash', { b: 2, a: 1 })).toBe('clash_43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777');
+    });
+
+    it.each(['nameserver-policy', 'nameserver-policy!', 'proxy-server-nameserver-policy', 'proxy-server-nameserver-policy!'])('preserves %s order in storage and config IDs', async field => {
+        const storage = new ConfigStorageService(new MemoryKVAdapter());
+        const first = { '+.bza.edu.cn': ['10.2.0.5'], 'geosite:cn,private': ['223.5.5.5'] };
+        const reversed = Object.fromEntries(Object.entries(first).reverse());
+        const id = await storage.saveConfig('clash', { dns: { [field]: first, ipv6: true } });
+        expect(Object.keys((await storage.getConfigById(id)).dns[field])).toEqual(Object.keys(first));
+        expect(await storage.saveConfig('clash', { dns: { ipv6: true, [field]: first } })).toBe(id);
+        expect(await storage.saveConfig('clash', { dns: { [field]: reversed, ipv6: true } })).not.toBe(id);
+    });
+
+    it('preserves DNS policy priority through upload, storage and subscription output', async () => {
+        const app = createApp({ kv: new MemoryKVAdapter() });
+        const policies = { 'zenith.test.bza.edu.cn': ['10.2.0.5'], 'geosite:cn,private': ['223.5.5.5'] };
+        const saved = await app.request('http://localhost/config', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'clash', content: yaml.dump({ dns: { 'nameserver-policy!': policies } }) })
+        });
+        expect(saved.status).toBe(200);
+        const configId = await saved.text();
+        const query = new URLSearchParams({ config: 'trojan://secret@node.example:443#Node', configId });
+        const generated = await app.request(`http://localhost/clash?${query}`);
+        expect(generated.status).toBe(200);
+        const output = yaml.load(await generated.text());
+        expect(Object.keys(output.dns['nameserver-policy'])).toEqual(Object.keys(policies));
+        expect(output.dns['nameserver-policy']).toEqual(policies);
+        expect(output.dns).not.toHaveProperty('nameserver-policy!');
     });
 
     it('preserves array order and distinguishes different values and client types', async () => {

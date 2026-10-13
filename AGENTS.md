@@ -37,7 +37,7 @@ Sublink Worker 是多平台代理订阅转换器：将各类协议（ShadowSocks
 统一接口：`get(key)`、`put(key, value, options)`、`delete(key)`。实现：`CloudflareKVAdapter`、`RedisKVAdapter`（ioredis）、`UpstashKVAdapter`（REST）、`MemoryKVAdapter`。
 
 - 服务层：`ShortLinkService`（短链）、`ConfigStorageService`（base config 存储，默认永不过期，可显式设置 TTL）
-- 基础覆写配置按类型 + 规范化 JSON 的 SHA-256 生成固定 ID，对象键递归排序、数组顺序保留，重复保存复用已有 KV 记录；已有随机 ID 仍可读取。预设仍用随机 ID，允许原 ID 更新；覆写内容修改生成新 ID。
+- 基础覆写配置按类型 + 规范化 JSON 的 SHA-256 生成固定 ID，对象键递归排序、数组顺序保留；DNS nameserver-policy / proxy-server-nameserver-policy（含 ! 形式）的键顺序保留并计入 ID，重复保存复用已有 KV 记录；已有随机 ID 仍可读取。预设仍用随机 ID，允许原 ID 更新；覆写内容修改生成新 ID。
 - Node/Vercel 优先级：Redis > Upstash/Vercel KV > 内存兜底；`DISABLE_MEMORY_KV=true` 关闭兜底
 - Cloudflare 用 `wrangler.toml` 的 `SUBLINK_KV` 与 `ASSETS` binding
 
@@ -59,7 +59,7 @@ Sublink Worker 是多平台代理订阅转换器：将各类协议（ShadowSocks
 
 **分组层级**：节点选择 → 普通代理 / 链式代理。普通代理包含普通自动选择、全部节点、来源与可选国家组；业务/自定义规则组保留来源候选，不展开原始节点或国家组。开启链式代理时总选择默认走链式；每个落地提供自动入口（完整链路测速、固定落地）或入口选择选项（带落地后缀、共享入口选择、仅 IN 节点）。关闭自动选择时不生成测速组或链式测速副本，国家组改为手动选择。原始 OUT 节点可在普通代理中单跳使用。
 
-**基础配置覆写**：`configId` 是对应版本默认模板上的合并覆写，与订阅仅节点导入分离。普通对象递归合并，标量和普通数组替换；命名列表按 name/tag 增改，type 改变时整项替换，命名空列表不清空。节点覆写在解析后、分组前应用，分组与规则覆写在生成后应用。规则表直接提供时整体替换；`prepend-rules`/`append-rules` 增补，append 位于兜底前，Sing-Box 推荐放在 route 内。合并与引用检查见 `builders/helpers/configOverrides.js`、`configValidation.js`，formatConfig 重复调用不得重复增补。
+**基础配置覆写**：`configId` 是对应版本默认模板上的合并覆写，与订阅仅节点导入分离。普通对象递归合并，标量和普通数组替换；对象键末尾 `!` 表示整体替换，空对象可清空，内部不再解析覆写标记；命名列表按 name/tag 增改，type 改变时整项替换，命名空列表不清空。节点覆写在解析后、分组前应用，分组与规则覆写在生成后应用。规则表直接提供时整体替换；`prepend-rules`/`append-rules` 增补，append 位于兜底前，Sing-Box 推荐放在 route 内。合并与引用检查见 `builders/helpers/configOverrides.js`、`configValidation.js`，formatConfig 重复调用不得重复增补。
 
 国家分组逻辑在 `src/utils.js#groupProxiesByCountry`。
 

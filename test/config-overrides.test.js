@@ -48,6 +48,46 @@ describe('base config overrides', () => {
         expect(config['proxy-groups'].length).toBeGreaterThan(0);
     });
 
+    it('replaces DNS policies with bang syntax and preserves priority through YAML output', async () => {
+        const policies = {
+            '+.bza.edu.cn': ['10.2.0.5'],
+            ...CLASH_CONFIG.dns['nameserver-policy']
+        };
+        const patch = { dns: { 'nameserver-policy!': policies } };
+        const original = structuredClone(patch);
+        const defaults = structuredClone(CLASH_CONFIG);
+        const builder = await build('clash', patch);
+        const output = yaml.load(builder.formattedConfig);
+        expect(Object.keys(output.dns['nameserver-policy'])).toEqual(Object.keys(policies));
+        expect(output.dns['nameserver-policy']).toEqual(policies);
+        expect(output.dns).not.toHaveProperty('nameserver-policy!');
+        expect(output.dns.nameserver).toEqual(defaults.dns.nameserver);
+        expect(output.dns['enhanced-mode']).toBe('fake-ip');
+        expect(builder.formatConfig()).toBe(builder.formattedConfig);
+        expect(patch).toEqual(original);
+        expect(CLASH_CONFIG).toEqual(defaults);
+    });
+
+    it('clears object fields with empty replacement objects', async () => {
+        const { config } = await build('clash', { dns: { 'nameserver-policy!': {} } });
+        expect(config.dns['nameserver-policy']).toEqual({});
+        expect(config.dns).not.toHaveProperty('nameserver-policy!');
+        expect(config.dns.nameserver).toEqual(CLASH_CONFIG.dns.nameserver);
+    });
+
+    it('replaces an entire DNS object without retaining defaults', async () => {
+        const dns = { enable: true, nameserver: ['10.2.0.5'] };
+        const { config } = await build('clash', { 'dns!': dns });
+        expect(config.dns).toEqual(dns);
+        expect(config).not.toHaveProperty('dns!');
+    });
+
+    it('rejects unsafe replacement targets and keys inside replacement objects', () => {
+        expect(() => mergeConfig({}, { 'constructor!': {} })).toThrow('Unsafe config key');
+        expect(() => mergeConfig({}, JSON.parse('{"dns!":{"__proto__":{"polluted":true}}}'))).toThrow('Unsafe config key');
+        expect({}.polluted).toBeUndefined();
+    });
+
     it('merges named records, replaces changed types, and keeps empty named patches additive', () => {
         const defaults = { outbounds: [{ tag: 'A', type: 'selector', outbounds: ['DIRECT'], interrupt_exist_connections: false }] };
         expect(mergeConfig(defaults, { outbounds: [{ tag: 'A', outbounds: ['B'] }, { tag: 'B', type: 'direct' }] })).toEqual({ outbounds: [{ ...defaults.outbounds[0], outbounds: ['B'] }, { tag: 'B', type: 'direct' }] });

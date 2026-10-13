@@ -72,13 +72,20 @@ export function mergeConfig(base, patch, path = '', format) {
     });
     Object.entries(patch).forEach(([key, value]) => {
         if (unsafeKeys.has(key)) throw new InvalidConfigError(`Unsafe config key: ${key}`);
+        if (key.endsWith('!') && isObject(value)) {
+            const targetKey = key.slice(0, -1);
+            if (!targetKey || unsafeKeys.has(targetKey)) throw new InvalidConfigError(`Unsafe config key: ${key}`);
+            result[targetKey] = cloneConfig(value);
+            return;
+        }
         result[key] = mergeConfig(result[key], value, path ? `${path}.${key}` : key, format);
     });
     return result;
 }
 
 function clientPatch(overrides, format) {
-    const patch = mergeConfig({}, overrides, '', format);
+    // Replacement markers must survive until the patch meets the generated config.
+    const patch = cloneConfig(overrides);
     delete patch['prepend-rules'];
     delete patch['append-rules'];
     if (format === 'singbox' && patch.route) {

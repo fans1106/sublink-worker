@@ -127,7 +127,9 @@ TTL; save them again and use the new ID/link to make them permanent. Persistent
 KV is required to retain records across restarts when using Node/Vercel.
 
 Overrides are shared by client type and normalized content. Object keys are sorted
-recursively before computing a SHA-256 ID; array order is preserved. Equivalent
+recursively before computing a SHA-256 ID; array order and key order inside Clash
+DNS `nameserver-policy` / `proxy-server-nameserver-policy` maps (including their
+`!` forms) are preserved because they affect resolver selection. Equivalent
 YAML/JSON or parsed Surge INI content reuses the same ID, and an existing record is
 not written again. Changed content gets a new ID, keeping earlier subscription
 links on their original snapshot. Legacy random IDs remain readable; existing
@@ -136,6 +138,9 @@ random IDs and can still be updated in place. With an explicit TTL, reuse does n
 extend the initial expiration; saving after expiry rebuilds the same ID.
 
 - Scalars override defaults, including `false` and `0`; nested objects merge recursively.
+- An object-valued key ending in `!` replaces the entire target object instead of
+  merging it, preserving the replacement's key order. The suffix is removed from
+  client output; `{}` clears that object. List every entry you want to retain.
 - Ordinary arrays replace the whole field, including `[]` to clear it.
 - Named lists (proxies, groups, Sing-Box inbounds, DNS servers, rule-sets, outbound
   providers and HTTP clients) merge by `name` or `tag`. Omitted entry fields remain;
@@ -163,6 +168,23 @@ dns:
 prepend-rules:
   - DOMAIN-SUFFIX,example.com,DIRECT
 ```
+
+To put a private DNS policy before broad geosite policies, replace the policy map:
+
+```yaml
+dns:
+  nameserver-policy!:
+    "+.bza.edu.cn":
+      - 10.2.0.5
+    geosite:cn,private:
+      - https://223.5.5.5/dns-query
+    geosite:geolocation-!cn:
+      - https://dns.cloudflare.com/dns-query
+```
+
+Sublink accepts `+.bza.edu.cn` directly; Clash Party's `<...>` escape is not needed.
+The replacement object is copied as provided, without interpreting nested override
+markers. Ordinary policy patches still merge into defaults and append new keys.
 
 Surge accepts JSON or INI in the editor. Proxy INI entries replace same-name
 entries; groups also accept partial JSON objects. To add rules in INI, use

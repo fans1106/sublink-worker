@@ -5,11 +5,18 @@ import { parseSurgeConfigInput } from '../utils/surgeConfigParser.js';
 import { InvalidPayloadError, MissingDependencyError } from './errors.js';
 
 const pendingConfigWrites = new WeakMap();
+const orderedConfigPaths = new Set(['dns.nameserver-policy', 'dns.proxy-server-nameserver-policy']);
 
-function canonicalJson(value) {
-    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+function canonicalJson(value, path = '') {
+    if (Array.isArray(value)) return `[${value.map(item => canonicalJson(item, `${path}[]`)).join(',')}]`;
     if (value !== null && typeof value === 'object') {
-        return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+        // Mihomo can select different resolvers when policy keys are reordered.
+        const keys = Object.keys(value);
+        if (!orderedConfigPaths.has(path)) keys.sort();
+        return `{${keys.map(key => {
+            const field = key.endsWith('!') ? key.slice(0, -1) : key;
+            return `${JSON.stringify(key)}:${canonicalJson(value[key], path ? `${path}.${field}` : field)}`;
+        }).join(',')}}`;
     }
     return JSON.stringify(value);
 }
