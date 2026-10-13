@@ -39,6 +39,17 @@
 - Choose a "deploy" button above to click
 - That's it! See the [Document](https://sublink.works/guide/quick-start/) for more information.
 
+### Cloudflare Routing
+
+`wrangler.toml` disables the default `workers.dev` address and version Preview
+URLs with `workers_dev = false` and `preview_urls = false`. Subsequent Wrangler
+deployments keep these addresses disabled. Configure a Custom Domain or route
+for HTTP access; for example, add a top-level entry using your own domain:
+
+```toml
+routes = [{ pattern = "sub.example.com", custom_domain = true }]
+```
+
 ### Alternative Runtimes
 - **Node.js**: `npm run build:node && node dist/node-server.cjs`
 - **Vercel**: `vercel deploy` (configure KV in project settings)
@@ -108,6 +119,12 @@ directly by the proxy client are outside this cache.
 The **Base Config Settings** editor and matching `configId` apply partial overrides
 to the built-in Clash, Sing-Box or Surge template. You can upload just the fields
 you want to change; existing stored configs use the same merge behavior.
+The **Save Overrides** button stores this content in KV and puts its `configId`
+into the page and generated subscription URLs. New overrides have no expiration
+by default. Node/Docker deployments may explicitly set `CONFIG_TTL_SECONDS` to a
+positive TTL, or `0` for no expiration. Previously saved records keep their old
+TTL; save them again and use the new ID/link to make them permanent. Persistent
+KV is required to retain records across restarts when using Node/Vercel.
 
 - Scalars override defaults, including `false` and `0`; nested objects merge recursively.
 - Ordinary arrays replace the whole field, including `[]` to clear it.

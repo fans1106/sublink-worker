@@ -11,7 +11,7 @@
 
 /**
  * @typedef {Object} RuntimeConfig
- * @property {number} [configTtlSeconds]
+ * @property {number | null} [configTtlSeconds]
  * @property {number} [shortLinkTtlSeconds]
  */
 
@@ -23,15 +23,11 @@
  * @property {RuntimeConfig} [config]
  */
 
-const DEFAULTS = {
-    configTtlSeconds: 60 * 60 * 24 * 30
-};
-
 /**
  * Normalize optional runtime bindings and provide safe defaults.
  *
  * @param {RuntimeBindings | undefined} runtime
- * @returns {{ kv: KeyValueStore | null, assetFetcher: AssetFetcher | null, logger: Console, config: RuntimeConfig & { configTtlSeconds: number, shortLinkTtlSeconds: number | null } }}
+ * @returns {{ kv: KeyValueStore | null, assetFetcher: AssetFetcher | null, logger: Console, config: RuntimeConfig & { configTtlSeconds: number | null, shortLinkTtlSeconds: number | null } }}
  */
 export function normalizeRuntime(runtime = {}) {
     return {
@@ -39,7 +35,7 @@ export function normalizeRuntime(runtime = {}) {
         assetFetcher: runtime.assetFetcher ?? null,
         logger: runtime.logger ?? console,
         config: {
-            configTtlSeconds: runtime.config?.configTtlSeconds ?? DEFAULTS.configTtlSeconds,
+            configTtlSeconds: runtime.config?.configTtlSeconds ?? null,
             shortLinkTtlSeconds: runtime.config?.shortLinkTtlSeconds ?? null
         }
     };

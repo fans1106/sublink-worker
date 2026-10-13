@@ -1,5 +1,5 @@
 // setTimeout delays above 2^31-1 ms overflow and fire immediately,
-// so long TTLs (e.g. the 30-day config default) must re-arm instead.
+// so long TTLs must re-arm instead.
 const MAX_TIMEOUT_MS = 0x7fffffff;
 
 export class MemoryKVAdapter {
