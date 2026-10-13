@@ -60,6 +60,8 @@ Sublink Worker 是多平台代理订阅转换器：将各类协议（ShadowSocks
 
 国家分组逻辑在 `src/utils.js#groupProxiesByCountry`。
 
+分组展示顺序：节点选择 → 普通代理 / 链式代理 → 落地 / 来源 → 入口选择 / 全部节点 → 自动选择 / 国家组 → 业务规则 / 自定义规则 / 漏网之鱼。
+
 ## 测试
 
 Vitest + `@cloudflare/vitest-pool-workers`，配置 `vitest.config.js` 指向 `wrangler.toml`。测试文件在 `test/`。

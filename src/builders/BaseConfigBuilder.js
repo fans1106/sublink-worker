@@ -525,18 +525,18 @@ export class BaseConfigBuilder {
     orderGroups(groups, getName) {
         const names = [
             this.t('outboundNames.Node Select'),
-            ...this.getOutboundsList().map(name => this.t(`outboundNames.${name}`)),
-            ...(Array.isArray(this.customRules) ? this.customRules : []).map(rule => this.t(`outboundNames.${rule.name}`)),
-            this.t('outboundNames.Fall Back'),
             this.ordinaryGroupName,
             this.chainGroupName,
             ...this.chainLandingGroupNames,
+            ...this.sourceGroupNames,
             this.chainEntryGroupName,
             this.allNodesGroupName,
             this.autoGroupName,
-            ...this.sourceGroupNames,
+            ...this.chainAutoGroupNames,
             ...this.countryGroupNames,
-            ...this.chainAutoGroupNames
+            ...this.getOutboundsList().map(name => this.t(`outboundNames.${name}`)),
+            ...(Array.isArray(this.customRules) ? this.customRules : []).flatMap(rule => [rule.name, this.t(`outboundNames.${rule.name}`)]),
+            this.t('outboundNames.Fall Back')
         ];
         const ranks = new Map();
         names.forEach(name => {

@@ -119,6 +119,9 @@ Ordinary Proxy contains Ordinary Auto Select, All Nodes, source groups and optio
 country groups. Business and custom rule selectors offer Node Select, Ordinary
 Proxy, Chain Proxy, source groups and direct/reject choices; raw nodes and country
 groups are reached through Ordinary Proxy instead of repeated in every rule.
+Groups are displayed in this order: Node Select, Ordinary/Chain Proxy, landings,
+sources, entry/all-node selectors, auto/country groups, then business/custom rules
+and the final fallback group.
 Provider subscriptions retain their remote updates through All Nodes, Ordinary
 Auto Select and their source groups. Each source group references only its own
 provider. Xray URI lists do not support groups.
