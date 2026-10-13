@@ -126,6 +126,15 @@ positive TTL, or `0` for no expiration. Previously saved records keep their old
 TTL; save them again and use the new ID/link to make them permanent. Persistent
 KV is required to retain records across restarts when using Node/Vercel.
 
+Overrides are shared by client type and normalized content. Object keys are sorted
+recursively before computing a SHA-256 ID; array order is preserved. Equivalent
+YAML/JSON or parsed Surge INI content reuses the same ID, and an existing record is
+not written again. Changed content gets a new ID, keeping earlier subscription
+links on their original snapshot. Legacy random IDs remain readable; existing
+duplicate records are not migrated or deleted. Form presets retain independent
+random IDs and can still be updated in place. With an explicit TTL, reuse does not
+extend the initial expiration; saving after expiry rebuilds the same ID.
+
 - Scalars override defaults, including `false` and `0`; nested objects merge recursively.
 - Ordinary arrays replace the whole field, including `[]` to clear it.
 - Named lists (proxies, groups, Sing-Box inbounds, DNS servers, rule-sets, outbound

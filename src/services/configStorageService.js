@@ -1,7 +1,46 @@
 import { assertConfigObject } from '../builders/helpers/configOverrides.js';
 import yaml from 'js-yaml';
 import { generateWebPath } from '../utils.js';
+import { parseSurgeConfigInput } from '../utils/surgeConfigParser.js';
 import { InvalidPayloadError, MissingDependencyError } from './errors.js';
+
+const pendingConfigWrites = new WeakMap();
+
+function canonicalJson(value) {
+    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+    if (value !== null && typeof value === 'object') {
+        return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+    }
+    return JSON.stringify(value);
+}
+
+async function contentConfigId(type, content) {
+    const subtle = globalThis.crypto?.subtle ?? (await import('node:crypto')).webcrypto.subtle;
+    const digest = await subtle.digest('SHA-256', new TextEncoder().encode(content));
+    const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+    return `${type}_${hash}`;
+}
+
+async function putConfigIfMissing(kv, id, content, options) {
+    let pending = pendingConfigWrites.get(kv);
+    if (!pending) {
+        pending = new Map();
+        pendingConfigWrites.set(kv, pending);
+    }
+    if (pending.has(id)) return pending.get(id);
+
+    // KV has no compare-and-set; coalesce local requests to avoid concurrent writes to one key.
+    const write = (async () => {
+        if (await kv.get(id) == null) await kv.put(id, content, options);
+    })();
+    pending.set(id, write);
+    try {
+        await write;
+    } finally {
+        pending.delete(id);
+        if (pending.size === 0) pendingConfigWrites.delete(kv);
+    }
+}
 
 export class ConfigStorageService {
     constructor(kv, options = {}) {
@@ -33,16 +72,23 @@ export class ConfigStorageService {
         }
 
         const kv = this.ensureKv();
-        const configId = existingId || `${type}_${generateWebPath(8)}`;
         const configString = this.serializeConfig(type, content);
 
         // Validate string is JSON before storing
         const parsed = JSON.parse(configString);
-        if (type !== 'preset') assertConfigObject(parsed);
+        if (type === 'preset') {
+            const configId = existingId || `${type}_${generateWebPath(8)}`;
+            await kv.put(configId, configString, undefined);
+            return configId;
+        }
 
-        const ttlSeconds = type === 'preset' ? undefined : this.options.configTtlSeconds;
+        assertConfigObject(parsed);
+        const canonicalContent = canonicalJson(parsed);
+        const configId = await contentConfigId(type, canonicalContent);
+
+        const ttlSeconds = this.options.configTtlSeconds;
         const putOptions = ttlSeconds ? { expirationTtl: ttlSeconds } : undefined;
-        await kv.put(configId, configString, putOptions);
+        await putConfigIfMissing(kv, configId, canonicalContent, putOptions);
         return configId;
     }
 
@@ -51,6 +97,13 @@ export class ConfigStorageService {
     }
 
     serializeConfig(type, content) {
+        if (type === 'surge' && typeof content === 'string') {
+            try {
+                return JSON.stringify(parseSurgeConfigInput(content).configObject);
+            } catch (error) {
+                throw new InvalidPayloadError(`Invalid Surge config: ${error.message}`);
+            }
+        }
         if (type === 'clash') {
             if (typeof content === 'string' && (content.trim().startsWith('-') || content.includes(':'))) {
                 const yamlConfig = yaml.load(content);

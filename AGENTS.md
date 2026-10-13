@@ -37,6 +37,7 @@ Sublink Worker 是多平台代理订阅转换器：将各类协议（ShadowSocks
 统一接口：`get(key)`、`put(key, value, options)`、`delete(key)`。实现：`CloudflareKVAdapter`、`RedisKVAdapter`（ioredis）、`UpstashKVAdapter`（REST）、`MemoryKVAdapter`。
 
 - 服务层：`ShortLinkService`（短链）、`ConfigStorageService`（base config 存储，默认永不过期，可显式设置 TTL）
+- 基础覆写配置按类型 + 规范化 JSON 的 SHA-256 生成固定 ID，对象键递归排序、数组顺序保留，重复保存复用已有 KV 记录；已有随机 ID 仍可读取。预设仍用随机 ID，允许原 ID 更新；覆写内容修改生成新 ID。
 - Node/Vercel 优先级：Redis > Upstash/Vercel KV > 内存兜底；`DISABLE_MEMORY_KV=true` 关闭兜底
 - Cloudflare 用 `wrangler.toml` 的 `SUBLINK_KV` 与 `ASSETS` binding
 

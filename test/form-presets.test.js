@@ -195,7 +195,7 @@ describe('form presets', () => {
             ...preset, currentConfigId: restored.data.currentConfigId
         });
         expect(restored.data.currentConfigId).toMatch(/^singbox_/);
-        expect(restored.data.currentConfigId).not.toBe(source.data.currentConfigId);
+        expect(restored.data.currentConfigId).toBe(source.data.currentConfigId);
         expect(JSON.parse(await kv.get(restored.data.currentConfigId))).toEqual({ log: { level: 'warn' } });
         expect(restored.window.dispatchEvent).toHaveBeenCalledOnce();
         expect(restored.window.history.replaceState.mock.calls.at(-1)[2]).toContain(`presetId=${source.data.presetId}`);
