@@ -103,6 +103,21 @@ at their last fetched values until expiration or an explicit refresh. Cloudflare
 KV updates may take time to propagate across regions. Remote providers fetched
 directly by the proxy client are outside this cache.
 
+### Subscription Groups
+
+Imported subscriptions and pasted configs contribute only proxy nodes. Their
+original groups, DNS settings, rules and other configuration fields are ignored;
+the built-in template or your selected base config supplies those settings.
+
+Clash, Sing-Box and Surge automatically create a selector for each full remote
+subscription URL. Groups are named `📥 airport.example`; different URLs on the
+same host get a numeric suffix. Repeated URLs share a group. Pasted proxy URIs
+are collected in `📥 Manual Nodes`, and pasted full configs in `📥 Imported Config`
+(labels follow the selected language). Groups are available in the node selector
+and rule selectors alongside optional country groups. Provider subscriptions
+retain their remote updates, with each source group referencing only its own
+provider. Xray URI lists do not support groups.
+
 ## 🤝 Contributing
 
 Issues and Pull Requests are welcome to improve this project.

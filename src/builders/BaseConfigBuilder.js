@@ -13,7 +13,6 @@ export class BaseConfigBuilder {
         this.selectedRules = [];
         this.t = createTranslator(lang);
         this.userAgent = userAgent;
-        this.appliedOverrideKeys = new Set();
         this.groupByCountry = groupByCountry;
         this.includeAutoSelect = includeAutoSelect;
         this.autoSelectInterval = parseAutoSelectInterval(autoSelectInterval);
@@ -26,8 +25,11 @@ export class BaseConfigBuilder {
         this.proxySourceIds = new WeakMap();
         this.sourceItems = new Map();
         this.sourceProxyNames = new Map();
+        this.importSources = new Map();
+        this.proxyImportSources = new WeakMap();
+        this.sourceGroupNames = [];
         this.chainGroupNames = [];
-        this.chainReservedNames = new Set();
+        this.reservedGroupNames = new Set();
     }
 
     async build(subscriptionFetcher) {
@@ -51,13 +53,10 @@ export class BaseConfigBuilder {
         const directResult = parseSubscriptionContent(input);
         if (directResult && typeof directResult === 'object' && directResult.type) {
             // It's a parsed config (singboxConfig or yamlConfig)
-            if (directResult.config) {
-                this.applyConfigOverrides(directResult.config);
-            }
             if (Array.isArray(directResult.proxies)) {
                 for (const proxy of directResult.proxies) {
                     if (proxy && proxy.tag) {
-                        parsedItems.push(proxy);
+                        this.recordParsedItem(parsedItems, proxy, undefined, this.getImportSource(null, 'config'));
                     }
                 }
                 if (parsedItems.length > 0) return parsedItems;
@@ -73,13 +72,10 @@ export class BaseConfigBuilder {
                 if (typeof decodedWhole === 'string') {
                     const decodedResult = parseSubscriptionContent(decodedWhole);
                     if (decodedResult && typeof decodedResult === 'object' && decodedResult.type) {
-                        if (decodedResult.config) {
-                            this.applyConfigOverrides(decodedResult.config);
-                        }
                         if (Array.isArray(decodedResult.proxies)) {
                             for (const proxy of decodedResult.proxies) {
                                 if (proxy && proxy.tag) {
-                                    parsedItems.push(proxy);
+                                    this.recordParsedItem(parsedItems, proxy, undefined, this.getImportSource(null, 'config'));
                                 }
                             }
                             if (parsedItems.length > 0) return parsedItems;
@@ -103,6 +99,7 @@ export class BaseConfigBuilder {
 
             for (const processedUrl of processedUrls) {
                 const trimmedUrl = typeof processedUrl === 'string' ? processedUrl.trim() : '';
+                const importSource = this.getImportSource(trimmedUrl);
 
                 // Check if it's an HTTP(S) URL - may use as provider if format matches
                 if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
@@ -120,6 +117,7 @@ export class BaseConfigBuilder {
                             // Chain membership must be resolved before OUT nodes can be excluded.
                             if (!this.chainConfig && this.isCompatibleProviderFormat(format)) {
                                 this.providerUrls.push(originalUrl);
+                                importSource.providerUrls.add(originalUrl);
                                 // Content is already fetched; keep node names so country
                                 // groups can be built over provider members later.
                                 await this.collectProviderNodeNames(content);
@@ -128,32 +126,7 @@ export class BaseConfigBuilder {
 
                             // Otherwise parse the content as usual
                             const result = parseSubscriptionContent(content);
-                            if (result && typeof result === 'object' && (result.type === 'yamlConfig' || result.type === 'singboxConfig' || result.type === 'surgeConfig')) {
-                                if (result.config) {
-                                    this.applyConfigOverrides(result.config);
-                                }
-                                if (Array.isArray(result.proxies)) {
-                                    result.proxies.forEach(proxy => {
-                                        if (proxy && typeof proxy === 'object' && proxy.tag) {
-                                            this.recordParsedItem(parsedItems, proxy, sourceId);
-                                        }
-                                    });
-                                }
-                                continue;
-                            }
-                            // Handle array of URIs or other formats
-                            if (Array.isArray(result)) {
-                                for (const item of result) {
-                                    if (item && typeof item === 'object' && item.tag) {
-                                        this.recordParsedItem(parsedItems, item, sourceId);
-                                    } else if (typeof item === 'string') {
-                                        const subResult = await ProxyParser.parse(item, this.userAgent, this.subscriptionFetcher);
-                                        if (subResult) {
-                                            this.recordParsedItem(parsedItems, subResult, sourceId);
-                                        }
-                                    }
-                                }
-                            }
+                            await this.recordSubscriptionResult(parsedItems, result, sourceId, importSource, new Set([trimmedUrl]));
                         }
                     } catch (error) {
                         console.error('Error processing HTTP subscription:', error);
@@ -163,47 +136,72 @@ export class BaseConfigBuilder {
 
                 // Non-HTTP URLs (protocol URIs like ss://, vmess://, etc.)
                 const result = await ProxyParser.parse(processedUrl, this.userAgent, this.subscriptionFetcher);
-                // Handle yamlConfig, singboxConfig, and surgeConfig types (they have the same structure)
-                if (result && typeof result === 'object' && (result.type === 'yamlConfig' || result.type === 'singboxConfig' || result.type === 'surgeConfig')) {
-                    if (result.config) {
-                        this.applyConfigOverrides(result.config);
-                    }
-                    if (Array.isArray(result.proxies)) {
-                        result.proxies.forEach(proxy => {
-                            if (proxy && typeof proxy === 'object' && proxy.tag) {
-                                this.recordParsedItem(parsedItems, proxy, sourceId);
-                            }
-                        });
-                    }
-                    continue;
-                }
-                if (Array.isArray(result)) {
-                    for (const item of result) {
-                        if (item && typeof item === 'object' && item.tag) {
-                            this.recordParsedItem(parsedItems, item, sourceId);
-                        } else if (typeof item === 'string') {
-                            const subResult = await ProxyParser.parse(item, this.userAgent, this.subscriptionFetcher);
-                            if (subResult) {
-                                this.recordParsedItem(parsedItems, subResult, sourceId);
-                            }
-                        }
-                    }
-                } else if (result) {
-                    this.recordParsedItem(parsedItems, result, sourceId);
-                }
+                await this.recordSubscriptionResult(parsedItems, result, sourceId, importSource);
             }
         }
 
         return parsedItems;
     }
 
-    recordParsedItem(parsedItems, item, sourceId) {
+    getImportSource(value, kind = 'manual') {
+        const isRemote = typeof value === 'string' && /^https?:\/\//i.test(value);
+        const id = isRemote ? value.trim() : kind;
+        if (!this.importSources.has(id)) {
+            let label = this.t(kind === 'config' ? 'configSource' : 'manualSource');
+            if (isRemote) {
+                try { label = new URL(value).hostname; } catch (_) { }
+            }
+            this.importSources.set(id, { label, nodeNames: new Set(), providerUrls: new Set() });
+        }
+        return this.importSources.get(id);
+    }
+
+    addSourceGroups() {
+        this.getProviderNames?.();
+        this.getProviderTags?.();
+        const providers = this.autoProviderDescriptors || [];
+        for (const source of this.importSources.values()) {
+            const providerNames = providers.filter(provider => source.providerUrls.has(provider.url)).map(provider => provider.name);
+            const members = [...source.nodeNames];
+            if (members.length === 0 && providerNames.length === 0) continue;
+            const name = this.reserveGroupName(`📥 ${source.label}`);
+            this.addSelectorGroup(name, members, 'select', providerNames);
+            this.sourceGroupNames.push(name);
+        }
+    }
+
+    async recordSubscriptionResult(parsedItems, result, sourceId, importSource, seen = new Set()) {
+        if (Array.isArray(result?.proxies)) {
+            result.proxies.forEach(proxy => this.recordParsedItem(parsedItems, proxy, sourceId, importSource));
+        } else if (Array.isArray(result)) {
+            for (const item of result) {
+                await this.recordSubscriptionResult(parsedItems, item, sourceId, importSource, seen);
+            }
+        } else if (typeof result === 'string') {
+            const value = result.trim();
+            if (!value || seen.has(value)) return;
+            seen.add(value);
+            const parsed = await ProxyParser.parse(value, this.userAgent, this.subscriptionFetcher);
+            await this.recordSubscriptionResult(parsedItems, parsed, sourceId, importSource, seen);
+        } else if (result?.tag) {
+            this.recordParsedItem(parsedItems, result, sourceId, importSource);
+        }
+    }
+
+    recordParsedItem(parsedItems, item, sourceId, importSource) {
         if (!item) return;
         if (Array.isArray(item)) {
-            item.forEach(child => this.recordParsedItem(parsedItems, child, sourceId));
+            item.forEach(child => this.recordParsedItem(parsedItems, child, sourceId, importSource));
             return;
         }
+        if (typeof item !== 'object' || !item.tag) return;
+        // Imported detours may reference groups that are deliberately discarded.
+        const { detour: _detour, ...node } = item;
+        item = node;
         parsedItems.push(item);
+        if (importSource && typeof item === 'object' && item.tag) {
+            this.proxyImportSources.set(item, importSource);
+        }
         if (!sourceId || typeof item !== 'object' || !item.tag) return;
 
         this.proxySourceIds.set(item, sourceId);
@@ -279,80 +277,6 @@ export class BaseConfigBuilder {
         return descriptors;
     }
 
-    applyConfigOverrides(overrides) {
-        if (!overrides || typeof overrides !== 'object') {
-            return;
-        }
-
-        // Block keys that are handled specially:
-        // - 'proxies': handled by dedicated parser
-        // - 'rules', 'rule-providers': generated by our own logic
-        // - 'proxy-groups': stored for later intelligent merge (not direct override)
-        const blacklistedKeys = new Set(['proxies', 'rules', 'rule-providers', 'proxy-groups']);
-
-        Object.entries(overrides).forEach(([key, value]) => {
-            if (blacklistedKeys.has(key)) {
-                return;
-            }
-            if (value === undefined) {
-                delete this.config[key];
-                this.appliedOverrideKeys.add(key);
-            } else if (key === 'dns' && typeof value === 'object' && !Array.isArray(value)) {
-                // Special handling for dns object - merge array fields instead of overwriting
-                this.config[key] = this.mergeDnsConfig(this.config[key], value);
-                this.appliedOverrideKeys.add(key);
-            } else {
-                this.config[key] = deepCopy(value);
-                this.appliedOverrideKeys.add(key);
-            }
-        });
-
-        // Store user proxy-groups for later merge (after system groups are created)
-        if (Array.isArray(overrides['proxy-groups'])) {
-            this.pendingUserProxyGroups = this.pendingUserProxyGroups || [];
-            this.pendingUserProxyGroups.push(...overrides['proxy-groups']);
-        }
-    }
-
-    /**
-     * Merge DNS configuration with intelligent array merging
-     * Arrays like nameserver, fallback, fake-ip-filter are merged instead of overwritten
-     * @param {object} existing - Existing DNS config
-     * @param {object} incoming - Incoming DNS config to merge
-     * @returns {object} - Merged DNS config
-     */
-    mergeDnsConfig(existing, incoming) {
-        if (!existing || typeof existing !== 'object') {
-            return deepCopy(incoming);
-        }
-
-        const result = deepCopy(existing);
-        // Array fields that should be merged instead of overwritten
-        const mergeableArrayKeys = new Set(['nameserver', 'fallback', 'fake-ip-filter']);
-
-        Object.entries(incoming).forEach(([key, value]) => {
-            if (mergeableArrayKeys.has(key) && Array.isArray(value)) {
-                if (Array.isArray(result[key])) {
-                    // Merge arrays and deduplicate
-                    result[key] = [...new Set([...result[key], ...value])];
-                } else {
-                    result[key] = deepCopy(value);
-                }
-            } else if (key === 'nameserver-policy' && typeof value === 'object' && !Array.isArray(value)) {
-                // Merge nameserver-policy object
-                result[key] = { ...(result[key] || {}), ...deepCopy(value) };
-            } else {
-                result[key] = deepCopy(value);
-            }
-        });
-
-        return result;
-    }
-
-    hasConfigOverride(key) {
-        return this.appliedOverrideKeys?.has(key);
-    }
-
     getSubscriptionUserinfo() {
         return this.subscriptionUserinfo;
     }
@@ -420,6 +344,10 @@ export class BaseConfigBuilder {
                 const convertedProxy = this.convertProxy(item);
                 if (convertedProxy) {
                     const addedProxy = this.addProxyToConfig(convertedProxy);
+                    const importSource = this.proxyImportSources.get(item);
+                    if (importSource && addedProxy && this.isUsableChainProxy(addedProxy)) {
+                        importSource.nodeNames.add(this.getProxyName(addedProxy));
+                    }
                     const sourceId = this.proxySourceIds.get(item);
                     if (sourceId && addedProxy && this.isUsableChainProxy(addedProxy)) {
                         if (!this.sourceProxyNames.has(sourceId)) {
@@ -443,23 +371,23 @@ export class BaseConfigBuilder {
         return false;
     }
 
-    createChainGroup() {
-        throw new Error('createChainGroup must be implemented in child class');
+    addSelectorGroup() {
+        throw new Error('addSelectorGroup must be implemented in child class');
     }
 
     applyChainToProxy() {
         throw new Error('applyChainToProxy must be implemented in child class');
     }
 
-    reserveChainName(baseName) {
+    reserveGroupName(baseName) {
         const usedProxyNames = new Set(this.getProxyList());
         let name = baseName;
         let suffix = 2;
-        while (usedProxyNames.has(name) || this.hasConfigGroup(name) || this.chainReservedNames.has(name)) {
+        while (usedProxyNames.has(name) || this.hasConfigGroup(name) || this.reservedGroupNames.has(name)) {
             name = `${baseName} ${suffix}`;
             suffix += 1;
         }
-        this.chainReservedNames.add(name);
+        this.reservedGroupNames.add(name);
         return name;
     }
 
@@ -477,16 +405,16 @@ export class BaseConfigBuilder {
         if (this.chainEntryProxyNames.length === 0) {
             throw new InvalidPayloadError('Chain requires supported IN nodes outside the OUT source');
         }
-        this.chainAutoGroupName = this.reserveChainName(this.t('outboundNames.Auto Select'));
-        this.createChainGroup(this.chainAutoGroupName, this.chainEntryProxyNames, 'url-test');
-        this.chainEntryGroupName = this.reserveChainName(this.t('chainEntry'));
-        this.createChainGroup(this.chainEntryGroupName, [...this.chainEntryProxyNames, this.chainAutoGroupName]);
+        this.chainAutoGroupName = this.reserveGroupName(this.t('outboundNames.Auto Select'));
+        this.addSelectorGroup(this.chainAutoGroupName, this.chainEntryProxyNames, 'url-test');
+        this.chainEntryGroupName = this.reserveGroupName(this.t('chainEntry'));
+        this.addSelectorGroup(this.chainEntryGroupName, [...this.chainEntryProxyNames, this.chainAutoGroupName]);
 
         const chainedNames = [];
         (this.sourceItems.get(exit.id) || []).forEach(item => {
             const addPath = (entryName, label) => {
                 const cloned = deepCopy(item);
-                cloned.tag = this.reserveChainName(`[${label}] ${item.tag}`);
+                cloned.tag = this.reserveGroupName(`[${label}] ${item.tag}`);
                 const converted = this.convertProxy(cloned);
                 const chained = converted && this.applyChainToProxy(converted, entryName);
                 if (!chained) return null;
@@ -501,12 +429,12 @@ export class BaseConfigBuilder {
             const candidates = this.chainEntryProxyNames
                 .map(entryName => addPath(entryName, `${this.t('chainProxy')} · ${entryName}`))
                 .filter(Boolean);
-            const autoName = this.reserveChainName(`${this.t('chainAutoSelect')} · ${item.tag}`);
-            this.createChainGroup(autoName, candidates, 'url-test');
+            const autoName = this.reserveGroupName(`${this.t('chainAutoSelect')} · ${item.tag}`);
+            this.addSelectorGroup(autoName, candidates, 'url-test');
             chainedNames.push(autoName);
         });
-        const chainGroupName = this.reserveChainName(this.t('chainExit'));
-        this.createChainGroup(chainGroupName, chainedNames);
+        const chainGroupName = this.reserveGroupName(this.t('chainExit'));
+        this.addSelectorGroup(chainGroupName, chainedNames);
         this.chainGroupNames.push(chainGroupName);
     }
 
@@ -526,6 +454,7 @@ export class BaseConfigBuilder {
         const proxyList = this.originalProxyNames ? [...this.originalProxyNames] : this.getProxyList();
 
         this.addAutoSelectGroup(this.chainEntryProxyNames || proxyList);
+        this.addSourceGroups();
         this.addNodeSelectGroup(proxyList);
         if (this.groupByCountry) {
             this.addCountryGroups();
@@ -533,29 +462,11 @@ export class BaseConfigBuilder {
         this.addOutboundGroups(outbounds, proxyList);
         this.addCustomRuleGroups(proxyList);
         this.addFallBackGroup(proxyList);
-
-        // Merge user-defined proxy-groups after system groups are created
-        if (this.pendingUserProxyGroups && this.pendingUserProxyGroups.length > 0) {
-            // Subscription overrides must not reintroduce OUT nodes or mutable probe paths.
-            this.mergeUserProxyGroups(this.pendingUserProxyGroups.filter(group => {
-                const name = typeof group === 'string' ? group.split('=')[0].trim() : group?.name;
-                return !this.chainReservedNames.has(name);
-            }));
-        }
     }
 
     getOriginalProxies() {
         if (!this.originalProxyNames) return this.getProxies();
         return this.getProxies().filter(proxy => this.originalProxyNames.has(this.getProxyName(proxy)));
-    }
-
-    /**
-     * Merge user-defined proxy groups with system-generated ones
-     * Override in child classes to implement format-specific merge logic
-     * @param {Array} userGroups - User-defined proxy groups
-     */
-    mergeUserProxyGroups(userGroups) {
-        // Default: no-op. Child classes implement format-specific merge.
     }
 
     generateRules() {

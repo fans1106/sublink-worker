@@ -8,7 +8,7 @@ import { sanitizeClashProxyGroups } from '../src/builders/helpers/clashConfigUti
 const t = createTranslator('zh-CN');
 
 describe('Clash Builder Tests', () => {
-  it('should clean up proxy-groups and remove non-existent proxies', async () => {
+  it('should discard imported proxy-groups and keep the nodes', async () => {
     const input = `
 proxies:
   - name: Valid-SS
@@ -32,15 +32,11 @@ proxy-groups:
     const built = yaml.load(yamlText);
 
     const grp = (built['proxy-groups'] || []).find(g => g && g.name === '自定义选择');
-    expect(grp).toBeDefined();
-
-    const expected = ['DIRECT', 'REJECT', 'Valid-SS'];
-    const actual = grp.proxies || [];
-
-    expect(actual).toEqual(expected);
+    expect(grp).toBeUndefined();
+    expect(built.proxies.map(proxy => proxy.name)).toContain('Valid-SS');
   });
 
-  it('should reference user-defined proxy-providers in generated proxy-groups', async () => {
+  it('should discard imported providers while keeping inline nodes', async () => {
     const input = `
 proxy-providers:
   my-provider:
@@ -64,7 +60,8 @@ proxies:
 
     const nodeSelect = (built['proxy-groups'] || []).find(g => g && g.name === '🚀 节点选择');
     expect(nodeSelect).toBeDefined();
-    expect(nodeSelect.use).toContain('my-provider');
+    expect(nodeSelect.use || []).not.toContain('my-provider');
+    expect(built.proxies.map(proxy => proxy.name)).toContain('local');
   });
 
   it('sanitizeClashProxyGroups should not remove provider node references when group uses providers', () => {

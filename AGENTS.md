@@ -48,13 +48,13 @@ Sublink Worker 是多平台代理订阅转换器：将各类协议（ShadowSocks
 
 返回值约定：
 - 协议 parser：`{ tag, type, ...protocolFields }`
-- 订阅级 parser：`{ type: 'yamlConfig'|'singboxConfig'|'surgeConfig', config, proxies }`
+- 订阅级 parser：`{ type: 'yamlConfig'|'singboxConfig'|'surgeConfig', config: null, proxies }`，只提取节点。
 
 **新增协议**：在 `src/parsers/protocols/` 加 parser，并在 `ProxyParser.js` 的 `protocolParsers` map 注册。
 
 **Builder 模式**：`SingboxConfigBuilder` / `ClashConfigBuilder` / `SurgeConfigBuilder` 都继承 `BaseConfigBuilder`。子类必须实现：`getProxies()`、`getProxyName(proxy)`、`convertProxy(proxy)`、`addProxyToConfig(proxy)`、`addAutoSelectGroup(list)`、`addNodeSelectGroup(list)`、`addOutboundGroups(outbounds, list)`、`addCustomRuleGroups(list)`、`addFallBackGroup(list)`、`addCountryGroups()`、`formatConfig()`。
 
-**Config Override**：订阅含完整配置时，`applyConfigOverrides()` 合并非代理字段到 base config；blacklist（proxies、rules、rule-providers）永远不被覆盖；Clash `proxy-groups` 可被订阅覆盖以保留用户分组结构。
+**订阅导入**：订阅与粘贴的完整配置只贡献节点，原分组、DNS、规则等不合并到 base config；内置模板或用户选择的 base config 提供这些设置。Clash / Sing-Box / Surge 按完整订阅 URL 建立来源选择组，同域名不同 URL 用数字后缀区分；手动 URI 和粘贴配置分别归组。来源组与国家分组并存，provider 来源组只引用自身 provider。
 
 国家分组逻辑在 `src/utils.js#groupProxiesByCountry`。
 

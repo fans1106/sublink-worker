@@ -21,7 +21,7 @@ export function withDirectReject(options = [], { includeReject = true } = {}) {
     ]);
 }
 
-export function buildNodeSelectMembers({ proxyList = [], translator, groupByCountry = false, manualGroupName, countryGroupNames = [], includeAutoSelect = true, includeReject = true }) {
+export function buildNodeSelectMembers({ proxyList = [], translator, groupByCountry = false, manualGroupName, countryGroupNames = [], sourceGroupNames = [], includeAutoSelect = true, includeReject = true }) {
     if (!translator) {
         throw new Error('buildNodeSelectMembers requires a translator function');
     }
@@ -36,10 +36,10 @@ export function buildNodeSelectMembers({ proxyList = [], translator, groupByCoun
             ...(includeAutoSelect ? [autoName] : []),
             ...proxyList
         ];
-    return withDirectReject(base, { includeReject });
+    return withDirectReject([...base, ...sourceGroupNames], { includeReject });
 }
 
-export function buildSelectorMembers({ proxyList = [], translator, groupByCountry = false, manualGroupName, countryGroupNames = [], includeAutoSelect = true, includeReject = true }) {
+export function buildSelectorMembers({ proxyList = [], translator, groupByCountry = false, manualGroupName, countryGroupNames = [], sourceGroupNames = [], includeAutoSelect = true, includeReject = true }) {
     if (!translator) {
         throw new Error('buildSelectorMembers requires a translator function');
     }
@@ -54,10 +54,10 @@ export function buildSelectorMembers({ proxyList = [], translator, groupByCountr
             translator('outboundNames.Node Select'),
             ...proxyList
         ];
-    return withDirectReject(base, { includeReject });
+    return withDirectReject([...base, ...sourceGroupNames], { includeReject });
 }
 
-export function buildCustomRuleMembers({ proxyList = [], translator, manualGroupName, includeAutoSelect = true, includeReject = true }) {
+export function buildCustomRuleMembers({ proxyList = [], translator, manualGroupName, sourceGroupNames = [], includeAutoSelect = true, includeReject = true }) {
     if (!translator) {
         throw new Error('buildCustomRuleMembers requires a translator function');
     }
@@ -65,6 +65,7 @@ export function buildCustomRuleMembers({ proxyList = [], translator, manualGroup
         translator('outboundNames.Node Select'),
         ...(includeAutoSelect ? [translator('outboundNames.Auto Select')] : []),
         ...(manualGroupName ? [manualGroupName] : []),
-        ...proxyList
+        ...proxyList,
+        ...sourceGroupNames
     ], { includeReject });
 }

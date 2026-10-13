@@ -165,7 +165,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
         return this.hasProxyGroup(name);
     }
 
-    createChainGroup(name, members, type = 'select') {
+    addSelectorGroup(name, members, type = 'select', providers = []) {
         this.config['proxy-groups'] = this.config['proxy-groups'] || [];
         this.config['proxy-groups'].push(this.createProxyGroup(
             name, type, members,
@@ -257,6 +257,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
         return buildNodeSelectMembers({
             proxyList,
             translator: this.t,
+            sourceGroupNames: this.sourceGroupNames,
             groupByCountry: false,
             manualGroupName: this.manualGroupName,
             countryGroupNames: this.countryGroupNames,
@@ -268,6 +269,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
         return buildSelectorMembers({
             proxyList,
             translator: this.t,
+            sourceGroupNames: this.sourceGroupNames,
             groupByCountry: this.groupByCountry,
             manualGroupName: this.manualGroupName,
             countryGroupNames: this.countryGroupNames,
@@ -324,6 +326,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
                 const options = buildCustomRuleMembers({
                     proxyList,
                     translator: this.t,
+                    sourceGroupNames: this.sourceGroupNames,
                     manualGroupName: this.manualGroupName,
                     includeAutoSelect: this.includeAutoSelect
                 });
@@ -384,6 +387,7 @@ export class SurgeConfigBuilder extends BaseConfigBuilder {
             const newOptions = buildNodeSelectMembers({
                 proxyList: [],
                 translator: this.t,
+                sourceGroupNames: this.sourceGroupNames,
                 groupByCountry: true,
                 manualGroupName,
                 countryGroupNames,

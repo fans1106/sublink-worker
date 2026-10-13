@@ -55,7 +55,7 @@ vmess://ewogICJ2IjogIjIiLAogICJwcyI6ICJ0dzEubm9kZS5jb20iLAogICJhZGQiOiAidHcxLm5v
         const nodeSelectGroup = (built['proxy-groups'] || []).find(g => g && g.name === nodeSelectLabel);
         expect(nodeSelectGroup).toBeDefined();
 
-        const expectedProxies = ['DIRECT', 'REJECT', autoName, manualName, '🇭🇰 Hong Kong', '🇹🇼 Taiwan', '🇺🇸 United States'];
+        const expectedProxies = ['DIRECT', 'REJECT', autoName, manualName, '📥 手动节点', '🇭🇰 Hong Kong', '🇹🇼 Taiwan', '🇺🇸 United States'];
         const actualProxies = nodeSelectGroup.proxies || [];
         expect(actualProxies.sort()).toEqual(expectedProxies.sort());
 

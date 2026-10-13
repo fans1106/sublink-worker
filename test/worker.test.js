@@ -90,7 +90,7 @@ describe('Worker', () => {
         expect(text).toContain('proxies:');
     });
 
-    it('GET /clash rejects empty url-test proxy groups with a diagnostic error', async () => {
+    it('GET /clash ignores empty upstream groups while importing nodes', async () => {
         const app = createTestApp();
         const config = `
 proxies:
@@ -107,10 +107,10 @@ proxy-groups:
 `;
         const res = await app.request(`http://localhost/clash?config=${encodeURIComponent(config)}`);
 
-        expect(res.status).toBe(400);
+        expect(res.status).toBe(200);
         const text = await res.text();
-        expect(text).toContain('Invalid proxy group "Empty Test Group"');
-        expect(text).toContain('requires at least one proxy or provider reference');
+        expect(text).toContain('Node-A');
+        expect(text).not.toContain('Empty Test Group');
     });
 
     it('GET /shorten-v2 returns short code', async () => {

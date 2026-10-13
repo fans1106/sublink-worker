@@ -5,7 +5,7 @@ import { deepCopy, groupProxiesByCountry, buildCountryNameFilter } from '../util
 import { addProxyWithDedup } from './helpers/proxyHelpers.js';
 import { buildSelectorMembers, buildNodeSelectMembers, buildCustomRuleMembers, uniqueNames } from './helpers/groupBuilder.js';
 import { emitClashRules, sanitizeClashProxyGroups } from './helpers/clashConfigUtils.js';
-import { normalizeGroupName, findGroupIndexByName } from './helpers/groupNameUtils.js';
+import { normalizeGroupName } from './helpers/groupNameUtils.js';
 import { InvalidConfigError } from '../services/errors.js';
 
 /**
@@ -330,10 +330,11 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
         return this.hasProxyGroup(name);
     }
 
-    createChainGroup(name, members, type = 'select') {
+    addSelectorGroup(name, members, type = 'select', providers = []) {
         this.config['proxy-groups'] = this.config['proxy-groups'] || [];
         this.config['proxy-groups'].push({
             name, type, proxies: uniqueNames(members),
+            ...(providers.length > 0 ? { use: providers } : {}),
             ...(type === 'url-test' ? { url: 'https://www.gstatic.com/generate_204', interval: this.autoSelectInterval, tolerance: 50, lazy: false } : {})
         });
     }
@@ -386,6 +387,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
         const list = this.withChainGroups(buildNodeSelectMembers({
             proxyList,
             translator: this.t,
+            sourceGroupNames: this.sourceGroupNames,
             groupByCountry: this.groupByCountry,
             manualGroupName: this.manualGroupName,
             countryGroupNames: this.countryGroupNames,
@@ -411,6 +413,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
         return buildSelectorMembers({
             proxyList,
             translator: this.t,
+            sourceGroupNames: this.sourceGroupNames,
             groupByCountry: this.groupByCountry,
             manualGroupName: this.manualGroupName,
             countryGroupNames: this.countryGroupNames,
@@ -452,6 +455,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
                     const proxies = buildCustomRuleMembers({
                         proxyList,
                         translator: this.t,
+                        sourceGroupNames: this.sourceGroupNames,
                         manualGroupName: this.manualGroupName,
                         includeAutoSelect: this.shouldIncludeAutoSelectGroup(proxyList)
                     });
@@ -567,6 +571,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
             const rebuilt = buildNodeSelectMembers({
                 proxyList: [],
                 translator: this.t,
+                sourceGroupNames: this.sourceGroupNames,
                 groupByCountry: true,
                 manualGroupName,
                 countryGroupNames,
@@ -576,82 +581,6 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
         }
         this.countryGroupNames = countryGroupNames;
         this.manualGroupName = manualGroupName;
-    }
-
-    /**
-     * Merge user-defined proxy groups with system-generated ones
-     * Handles same-name groups by merging proxies/use fields and preserving user settings
-     * @param {Array} userGroups - User-defined proxy groups from input config
-     */
-    mergeUserProxyGroups(userGroups) {
-        if (!Array.isArray(userGroups)) return;
-
-        const proxyList = this.getProxyList();
-        const allProviderNames = new Set(this.getAllProviderNames());
-
-        // Build valid reference set (proxies, groups, special names)
-        const groupNames = new Set(
-            (this.config['proxy-groups'] || [])
-                .map(g => normalizeGroupName(g?.name))
-                .filter(Boolean)
-        );
-        const validRefs = new Set(['DIRECT', 'REJECT']);
-        proxyList.forEach(n => validRefs.add(n));
-        groupNames.forEach(n => validRefs.add(n));
-
-        userGroups.forEach(userGroup => {
-            if (!userGroup?.name) return;
-
-            const existingIndex = findGroupIndexByName(
-                this.config['proxy-groups'],
-                userGroup.name
-            );
-
-            if (existingIndex >= 0) {
-                // Merge with existing system group
-                const existing = this.config['proxy-groups'][existingIndex];
-
-                // Merge 'use' field (provider references)
-                if (Array.isArray(userGroup.use) && userGroup.use.length > 0) {
-                    const validUserProviders = userGroup.use.filter(p => allProviderNames.has(p));
-                    existing.use = [...new Set([
-                        ...(existing.use || []),
-                        ...validUserProviders
-                    ])];
-                }
-
-                // Merge 'proxies' field - validate references first
-                if (Array.isArray(userGroup.proxies)) {
-                    const validUserProxies = userGroup.proxies.filter(p => validRefs.has(p));
-                    existing.proxies = [...new Set([
-                        ...(existing.proxies || []),
-                        ...validUserProxies
-                    ])];
-                }
-
-                // Preserve user's custom settings (url, interval)
-                if (userGroup.url) existing.url = userGroup.url;
-                if (typeof userGroup.interval === 'number') existing.interval = userGroup.interval;
-                if (typeof userGroup.lazy === 'boolean') existing.lazy = userGroup.lazy;
-            } else {
-                // New user-defined group - validate and add
-                const newGroup = { ...userGroup };
-
-                // Validate proxies references
-                if (Array.isArray(newGroup.proxies)) {
-                    newGroup.proxies = newGroup.proxies.filter(p => validRefs.has(p));
-                }
-
-                // Validate use (provider) references
-                if (Array.isArray(newGroup.use)) {
-                    newGroup.use = newGroup.use.filter(p => allProviderNames.has(p));
-                }
-
-                if ((newGroup.proxies?.length > 0) || (newGroup.use?.length > 0) || newGroup.type) {
-                    this.config['proxy-groups'].push(newGroup);
-                }
-            }
-        });
     }
 
     /**

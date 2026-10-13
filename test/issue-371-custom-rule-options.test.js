@@ -19,6 +19,7 @@ describe('Issue #371 - custom rule groups keep full proxy choices without countr
         '🖐️ 手动切换',
         'US-Node-1',
         'UK-Node-1',
+        '📥 手动节点',
         'DIRECT'
     ];
 
@@ -27,6 +28,7 @@ describe('Issue #371 - custom rule groups keep full proxy choices without countr
         '⚡ 自动选择',
         'US-Node-1',
         'UK-Node-1',
+        '📥 手动节点',
         'DIRECT'
     ];
 

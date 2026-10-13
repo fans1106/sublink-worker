@@ -117,28 +117,11 @@ FINAL,DIRECT
             expect(types).toContain('hysteria2');
         });
 
-        it('should preserve config overrides', () => {
+        it('should discard groups and non-node configuration', () => {
             const result = parseSurgeIni(sampleSurgeConfig);
-            expect(result.config).not.toBeNull();
-            expect(result.config.general).toBeDefined();
-            expect(result.config.rules).toBeDefined();
+            expect(result.config).toBeNull();
+            expect(result.proxies).toHaveLength(5);
         });
-
-        it('should convert proxy-groups from strings to objects', () => {
-            const result = parseSurgeIni(sampleSurgeConfig);
-            // proxy-groups should now be parsed and converted to Clash-compatible object format
-            expect(result.config['proxy-groups']).toBeDefined();
-            expect(Array.isArray(result.config['proxy-groups'])).toBe(true);
-            expect(result.config['proxy-groups'].length).toBe(1);
-
-            const group = result.config['proxy-groups'][0];
-            expect(group.name).toBe('Proxy');
-            expect(group.type).toBe('select');
-            expect(group.proxies).toContain('HK-SS');
-            expect(group.proxies).toContain('US-VMess');
-            expect(group.proxies).toContain('JP-Trojan');
-        });
-
 
         it('should return null for non-Surge content', () => {
             expect(parseSurgeIni('not a surge config')).toBeNull();
