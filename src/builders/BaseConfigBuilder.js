@@ -4,6 +4,7 @@ import { createTranslator } from '../i18n/index.js';
 import { generateRules, getOutbounds, PREDEFINED_RULE_SETS } from '../config/index.js';
 import { InvalidPayloadError } from '../services/errors.js';
 import { parseAutoSelectInterval } from '../config/autoSelectInterval.js';
+import { buildNodeSelectMembers, buildOrdinaryMembers, buildSelectorMembers } from './helpers/groupBuilder.js';
 
 export class BaseConfigBuilder {
     constructor(inputString, baseConfig, lang, userAgent, groupByCountry = false, includeAutoSelect = true, chainConfig = null, autoSelectInterval) {
@@ -25,18 +26,31 @@ export class BaseConfigBuilder {
         this.proxySourceIds = new WeakMap();
         this.sourceItems = new Map();
         this.sourceProxyNames = new Map();
+        this.proxyAddedNames = new WeakMap();
         this.importSources = new Map();
         this.proxyImportSources = new WeakMap();
         this.sourceGroupNames = [];
-        this.chainGroupNames = [];
+        this.chainLandingGroupNames = [];
+        this.chainAutoGroupNames = [];
         this.reservedGroupNames = new Set();
     }
 
     async build(subscriptionFetcher) {
         this.subscriptionFetcher = subscriptionFetcher;
+        this.publicGroupNames = new Set([
+            'DIRECT', 'REJECT', this.t('outboundNames.Node Select'), this.t('outboundNames.Fall Back'),
+            ...this.getOutboundsList().map(name => this.t(`outboundNames.${name}`)),
+            ...(Array.isArray(this.customRules) ? this.customRules : []).flatMap(rule => [rule.name, this.t(`outboundNames.${rule.name}`)])
+        ]);
+        this.publicGroupNames.forEach(name => this.reservedGroupNames.add(name));
         const customItems = await this.parseCustomItems();
         this.addCustomItems(customItems);
         this.originalProxyNames = new Set(this.getProxyList());
+        this.ordinaryGroupName = this.reserveGroupName(this.t('ordinaryProxy'));
+        this.allNodesGroupName = this.reserveGroupName(this.t('outboundNames.Manual Switch'));
+        if (this.includeAutoSelect) {
+            this.autoGroupName = this.reserveGroupName(this.t('outboundNames.Auto Select'));
+        }
         this.addChains();
         this.addSelectors();
         return this.formatConfig();
@@ -314,11 +328,17 @@ export class BaseConfigBuilder {
     }
 
     addAutoSelectGroup(proxyList) {
-        throw new Error('addAutoSelectGroup must be implemented in child class');
+        const providers = this.getProviderReferences();
+        if (this.includeAutoSelect && (proxyList.length > 0 || providers.length > 0)) {
+            this.addSelectorGroup(this.autoGroupName, proxyList, 'url-test', providers);
+        }
     }
 
-    addNodeSelectGroup(proxyList) {
-        throw new Error('addNodeSelectGroup must be implemented in child class');
+    addNodeSelectGroup() {
+        const name = this.t('outboundNames.Node Select');
+        if (!this.hasConfigGroup(name)) {
+            this.addSelectorGroup(name, this.getNodeSelectMembers(this.supportsReject !== false));
+        }
     }
 
     addOutboundGroups(outbounds, proxyList) {
@@ -341,9 +361,14 @@ export class BaseConfigBuilder {
         const validItems = customItems.filter(item => item != null);
         validItems.forEach(item => {
             if (item?.tag) {
-                const convertedProxy = this.convertProxy(item);
+                // Fixed rule targets must remain groups even when an imported node shares their name.
+                const tag = this.publicGroupNames.has(item.tag) ? this.reserveGroupName(item.tag) : item.tag;
+                const convertedProxy = this.convertProxy({ ...item, tag });
                 if (convertedProxy) {
                     const addedProxy = this.addProxyToConfig(convertedProxy);
+                    if (addedProxy && this.isUsableChainProxy(addedProxy)) {
+                        this.proxyAddedNames.set(item, this.getProxyName(addedProxy));
+                    }
                     const importSource = this.proxyImportSources.get(item);
                     if (importSource && addedProxy && this.isUsableChainProxy(addedProxy)) {
                         importSource.nodeNames.add(this.getProxyName(addedProxy));
@@ -405,63 +430,119 @@ export class BaseConfigBuilder {
         if (this.chainEntryProxyNames.length === 0) {
             throw new InvalidPayloadError('Chain requires supported IN nodes outside the OUT source');
         }
-        this.chainAutoGroupName = this.reserveGroupName(this.t('outboundNames.Auto Select'));
-        this.addSelectorGroup(this.chainAutoGroupName, this.chainEntryProxyNames, 'url-test');
         this.chainEntryGroupName = this.reserveGroupName(this.t('chainEntry'));
-        this.addSelectorGroup(this.chainEntryGroupName, [...this.chainEntryProxyNames, this.chainAutoGroupName]);
+        this.addSelectorGroup(this.chainEntryGroupName, this.chainEntryProxyNames);
 
-        const chainedNames = [];
+        const seenExits = new Set();
         (this.sourceItems.get(exit.id) || []).forEach(item => {
+            const exitName = this.proxyAddedNames.get(item);
+            if (!exitName || seenExits.has(exitName)) return;
+            seenExits.add(exitName);
             const addPath = (entryName, label) => {
                 const cloned = deepCopy(item);
-                cloned.tag = this.reserveGroupName(`[${label}] ${item.tag}`);
+                cloned.tag = this.reserveGroupName(`${label} · ${exitName}`);
                 const converted = this.convertProxy(cloned);
                 const chained = converted && this.applyChainToProxy(converted, entryName);
                 if (!chained) return null;
                 const added = this.addProxyToConfig(chained);
                 return added && this.isUsableChainProxy(added) ? this.getProxyName(added) : null;
             };
-            const manualName = addPath(this.chainEntryGroupName, this.t('chainProxy'));
+            const manualName = addPath(this.chainEntryGroupName, this.t('chainManual'));
             if (!manualName) return;
-            chainedNames.push(manualName);
+            const members = [];
 
-            // Each probe pins both hops, so its delay measures this landing via one entry.
-            const candidates = this.chainEntryProxyNames
-                .map(entryName => addPath(entryName, `${this.t('chainProxy')} · ${entryName}`))
-                .filter(Boolean);
-            const autoName = this.reserveGroupName(`${this.t('chainAutoSelect')} · ${item.tag}`);
-            this.addSelectorGroup(autoName, candidates, 'url-test');
-            chainedNames.push(autoName);
+            if (this.includeAutoSelect) {
+                // Each probe pins both hops, so switching entries never changes the landing.
+                const candidates = this.chainEntryProxyNames
+                    .map(entryName => addPath(entryName, `[${this.t('chainProxy')} · ${entryName}]`))
+                    .filter(Boolean);
+                if (candidates.length > 0) {
+                    const autoName = this.reserveGroupName(`${this.t('chainAutoSelect')} · ${exitName}`);
+                    this.addSelectorGroup(autoName, candidates, 'url-test');
+                    this.chainAutoGroupNames.push(autoName);
+                    members.push(autoName);
+                }
+            }
+            members.push(manualName);
+            const landingName = this.reserveGroupName(`${this.t('chainLanding')} · ${exitName}`);
+            this.addSelectorGroup(landingName, members);
+            this.chainLandingGroupNames.push(landingName);
         });
-        const chainGroupName = this.reserveGroupName(this.t('chainExit'));
-        this.addSelectorGroup(chainGroupName, chainedNames);
-        this.chainGroupNames.push(chainGroupName);
+        if (this.chainLandingGroupNames.length === 0) {
+            throw new InvalidPayloadError('Chain OUT source has no supported chain paths');
+        }
+        this.chainGroupName = this.reserveGroupName(this.t('chainGroup'));
+        this.addSelectorGroup(this.chainGroupName, this.chainLandingGroupNames);
     }
 
-    withChainGroups(options = []) {
-        if (this.chainGroupNames.length === 0) return options;
-        const insertAt = options.findIndex(option => option === 'DIRECT' || option === 'REJECT');
-        const index = insertAt === -1 ? options.length : insertAt;
-        return [
-            ...options.slice(0, index),
-            ...this.chainGroupNames.filter(name => !options.includes(name)),
-            ...options.slice(index)
-        ];
+    getProviderReferences() {
+        return this.getAllProviderNames?.() ?? this.getAllProviderTags?.() ?? [];
+    }
+
+    getNodeSelectMembers(includeReject = true) {
+        return buildNodeSelectMembers({
+            ordinaryGroupName: this.ordinaryGroupName,
+            chainGroupName: this.chainGroupName,
+            includeReject
+        });
+    }
+
+    getBusinessGroupMembers(includeReject = true) {
+        return buildSelectorMembers({
+            translator: this.t,
+            ordinaryGroupName: this.ordinaryGroupName,
+            chainGroupName: this.chainGroupName,
+            sourceGroupNames: this.sourceGroupNames,
+            includeReject
+        });
     }
 
     addSelectors() {
         const outbounds = this.getOutboundsList();
-        const proxyList = this.originalProxyNames ? [...this.originalProxyNames] : this.getProxyList();
+        const proxyList = this.getOriginalProxies()
+            .filter(proxy => this.isUsableChainProxy(proxy))
+            .map(proxy => this.getProxyName(proxy));
+        const providers = this.getProviderReferences();
+        const hasNodes = proxyList.length > 0 || providers.length > 0;
 
-        this.addAutoSelectGroup(this.chainEntryProxyNames || proxyList);
+        this.addAutoSelectGroup(proxyList);
         this.addSourceGroups();
-        this.addNodeSelectGroup(proxyList);
-        if (this.groupByCountry) {
-            this.addCountryGroups();
-        }
-        this.addOutboundGroups(outbounds, proxyList);
-        this.addCustomRuleGroups(proxyList);
-        this.addFallBackGroup(proxyList);
+        if (this.groupByCountry) this.addCountryGroups();
+        if (hasNodes) this.addSelectorGroup(this.allNodesGroupName, proxyList, 'select', providers);
+        const ordinaryMembers = buildOrdinaryMembers({
+            autoGroupName: this.includeAutoSelect && hasNodes ? this.autoGroupName : undefined,
+            allNodesGroupName: hasNodes ? this.allNodesGroupName : undefined,
+            sourceGroupNames: this.sourceGroupNames,
+            countryGroupNames: this.countryGroupNames
+        });
+        this.addSelectorGroup(this.ordinaryGroupName, ordinaryMembers.length > 0 ? ordinaryMembers : ['DIRECT']);
+        this.addNodeSelectGroup();
+        this.addOutboundGroups(outbounds);
+        this.addCustomRuleGroups();
+        this.addFallBackGroup();
+    }
+
+    orderGroups(groups, getName) {
+        const names = [
+            this.t('outboundNames.Node Select'),
+            ...this.getOutboundsList().map(name => this.t(`outboundNames.${name}`)),
+            ...(Array.isArray(this.customRules) ? this.customRules : []).map(rule => this.t(`outboundNames.${rule.name}`)),
+            this.t('outboundNames.Fall Back'),
+            this.ordinaryGroupName,
+            this.chainGroupName,
+            ...this.chainLandingGroupNames,
+            this.chainEntryGroupName,
+            this.allNodesGroupName,
+            this.autoGroupName,
+            ...this.sourceGroupNames,
+            ...this.countryGroupNames,
+            ...this.chainAutoGroupNames
+        ];
+        const ranks = new Map();
+        names.forEach(name => {
+            if (name && !ranks.has(name)) ranks.set(name, ranks.size);
+        });
+        return [...groups].sort((a, b) => (ranks.get(getName(a)) ?? ranks.size) - (ranks.get(getName(b)) ?? ranks.size));
     }
 
     getOriginalProxies() {

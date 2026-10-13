@@ -107,13 +107,13 @@ hysteria2://11111251-af2b-49f4-aea4-56a8a8f7a391@demo1.de:8443?peer=demo1.de&ins
         const result = await builder.build();
 
         // Extract a proxy group line and verify syntax
-        const autoSelectMatch = result.match(/⚡ 自动选择 = url-test,([^\n]+)/);
+        const autoSelectMatch = result.match(/⚡ 普通自动选择 = url-test,([^\n]+)/);
         expect(autoSelectMatch).not.toBeNull();
 
         const proxyList = autoSelectMatch[1];
 
         // Each item in the proxy list should be a valid proxy name (no # comments)
-        const items = proxyList.split(',').map(s => s.trim()).filter(s => s && !s.startsWith('url=') && !s.startsWith('interval='));
+        const items = proxyList.split(',').map(s => s.trim()).filter(s => s && !s.startsWith('url=') && !s.startsWith('interval=') && !s.startsWith('tolerance='));
 
         for (const item of items) {
             // No item should start with #

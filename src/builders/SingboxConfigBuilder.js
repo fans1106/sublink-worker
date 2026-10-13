@@ -1,9 +1,9 @@
 
 import { SING_BOX_CONFIG, generateRuleSets, generateRules, getOutbounds, PREDEFINED_RULE_SETS, DIRECT_DEFAULT_RULES, REJECT_ACTION_RULES } from '../config/index.js';
 import { BaseConfigBuilder } from './BaseConfigBuilder.js';
-import { deepCopy, groupProxiesByCountry } from '../utils.js';
+import { groupProxiesByCountry } from '../utils.js';
 import { addProxyWithDedup } from './helpers/proxyHelpers.js';
-import { buildSelectorMembers as buildSelectorMemberList, buildNodeSelectMembers, buildCustomRuleMembers, uniqueNames } from './helpers/groupBuilder.js';
+import { uniqueNames } from './helpers/groupBuilder.js';
 import { normalizeGroupName } from './helpers/groupNameUtils.js';
 
 const RULE_SET_HTTP_CLIENT_TAG = 'rule-set-download';
@@ -21,7 +21,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
         this.selectedRules = selectedRules;
         this.customRules = customRules;
         this.countryGroupNames = [];
-        this.manualGroupName = null;
+        this.supportsReject = false;
         this.enableClashUI = enableClashUI;
         this.externalController = externalController;
         this.externalUiDownloadUrl = externalUiDownloadUrl;
@@ -220,83 +220,11 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
         return (this.config.outbounds || []).some(outbound => normalizeGroupName(outbound?.tag) === target);
     }
 
-    hasAutoSelectCandidates(proxyList = this.getProxyList()) {
-        return (Array.isArray(proxyList) && proxyList.length > 0) || this.getAllProviderTags().length > 0;
-    }
-
-    addAutoSelectGroup(proxyList) {
-        if (!this.includeAutoSelect) return;
-        this.config.outbounds = this.config.outbounds || [];
-        const tag = this.t('outboundNames.Auto Select');
-        if (this.hasOutboundTag(tag)) return;
-        const providerTags = this.getAllProviderTags();
-        const autoSelectMembers = deepCopy(uniqueNames(proxyList));
-        if (autoSelectMembers.length === 0 && providerTags.length === 0) return;
-
-        const group = {
-            type: "urltest",
-            tag,
-            interval: `${this.autoSelectInterval}s`,
-            outbounds: autoSelectMembers
-        };
-
-        // Add 'providers' field if we have outbound_providers
-        if (providerTags.length > 0) {
-            group.providers = providerTags;
-        }
-
-        this.config.outbounds.unshift(group);
-    }
-
-    addNodeSelectGroup(proxyList) {
-        this.config.outbounds = this.config.outbounds || [];
-        const tag = this.t('outboundNames.Node Select');
-        if (this.hasOutboundTag(tag)) return;
-        const includeAutoSelect = this.includeAutoSelect && this.hasAutoSelectCandidates(proxyList);
-        const members = this.withChainGroups(buildNodeSelectMembers({
-            proxyList,
-            translator: this.t,
-            sourceGroupNames: this.sourceGroupNames,
-            groupByCountry: this.groupByCountry,
-            manualGroupName: this.manualGroupName,
-            countryGroupNames: this.countryGroupNames,
-            includeAutoSelect,
-            includeReject: false
-        }));
-
-        const group = {
-            type: "selector",
-            tag,
-            outbounds: members
-        };
-
-        // Add 'providers' field if we have outbound_providers
-        const providerTags = this.getAllProviderTags();
-        if (providerTags.length > 0) {
-            group.providers = providerTags;
-        }
-
-        this.config.outbounds.unshift(group);
-    }
-
-    buildSelectorMembers(proxyList = []) {
-        return buildSelectorMemberList({
-            proxyList,
-            translator: this.t,
-            sourceGroupNames: this.sourceGroupNames,
-            groupByCountry: this.groupByCountry,
-            manualGroupName: this.manualGroupName,
-            countryGroupNames: this.countryGroupNames,
-            includeAutoSelect: this.includeAutoSelect && this.hasAutoSelectCandidates(proxyList),
-            includeReject: false
-        });
-    }
-
-    addOutboundGroups(outbounds, proxyList) {
+    addOutboundGroups(outbounds) {
         outbounds.forEach(outbound => {
             if (outbound !== this.t('outboundNames.Node Select')) {
                 if (REJECT_ACTION_RULES.has(outbound)) return;
-                let selectorMembers = this.buildSelectorMembers(proxyList);
+                let selectorMembers = this.getBusinessGroupMembers(false);
                 const tag = this.t(`outboundNames.${outbound}`);
                 if (this.hasOutboundTag(tag)) {
                     return;
@@ -314,18 +242,10 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
         });
     }
 
-    addCustomRuleGroups(proxyList) {
+    addCustomRuleGroups() {
         if (Array.isArray(this.customRules)) {
             this.customRules.forEach(rule => {
-                const includeAutoSelect = this.includeAutoSelect && this.hasAutoSelectCandidates(proxyList);
-                const selectorMembers = buildCustomRuleMembers({
-                    proxyList,
-                    translator: this.t,
-                    sourceGroupNames: this.sourceGroupNames,
-                    manualGroupName: this.manualGroupName,
-                    includeAutoSelect,
-                    includeReject: false
-                });
+                const selectorMembers = this.getBusinessGroupMembers(false);
                 if (this.hasOutboundTag(rule.name)) return;
                 this.config.outbounds.push({
                     type: "selector",
@@ -336,8 +256,8 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
         }
     }
 
-    addFallBackGroup(proxyList) {
-        const selectorMembers = this.buildSelectorMembers(proxyList);
+    addFallBackGroup() {
+        const selectorMembers = this.getBusinessGroupMembers(false);
         if (this.hasOutboundTag(this.t('outboundNames.Fall Back'))) return;
         this.config.outbounds.push({
             type: "selector",
@@ -354,36 +274,21 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
 
         const existingTags = new Set((this.config.outbounds || []).map(o => normalizeGroupName(o?.tag)).filter(Boolean));
 
-        const manualProxyNames = proxies.map(p => p?.tag).filter(Boolean);
-        const manualGroupName = manualProxyNames.length > 0 ? this.t('outboundNames.Manual Switch') : null;
-        if (manualGroupName) {
-            const manualNorm = normalizeGroupName(manualGroupName);
-            if (!existingTags.has(manualNorm)) {
-                this.config.outbounds.push({
-                    type: 'selector',
-                    tag: manualGroupName,
-                    outbounds: manualProxyNames
-                });
-                existingTags.add(manualNorm);
-            }
-        }
-
         const countries = Object.keys(countryGroups).sort((a, b) => a.localeCompare(b));
         const countryGroupNames = [];
-        const includeAutoSelect = this.includeAutoSelect && this.hasAutoSelectCandidates();
 
         countries.forEach(country => {
             const { emoji, name, proxies: countryProxies } = countryGroups[country];
             if (!countryProxies || countryProxies.length === 0) {
                 return;
             }
-            const groupName = `${emoji} ${name}`;
+            const groupName = this.reserveGroupName(`${emoji} ${name}`);
             const norm = normalizeGroupName(groupName);
             if (!existingTags.has(norm)) {
                 this.config.outbounds.push({
                     tag: groupName,
-                    type: 'urltest',
-                    interval: `${this.autoSelectInterval}s`,
+                    type: this.includeAutoSelect ? 'urltest' : 'selector',
+                    ...(this.includeAutoSelect ? { interval: `${this.autoSelectInterval}s` } : {}),
                     outbounds: countryProxies
                 });
                 existingTags.add(norm);
@@ -391,24 +296,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
             countryGroupNames.push(groupName);
         });
 
-        const nodeSelectTag = this.t('outboundNames.Node Select');
-        const nodeSelectGroup = this.config.outbounds.find(o => normalizeGroupName(o?.tag) === normalizeGroupName(nodeSelectTag));
-        if (nodeSelectGroup && Array.isArray(nodeSelectGroup.outbounds)) {
-            const rebuilt = buildNodeSelectMembers({
-                proxyList: [],
-                translator: this.t,
-                sourceGroupNames: this.sourceGroupNames,
-                groupByCountry: true,
-                manualGroupName,
-                countryGroupNames,
-                includeAutoSelect,
-                includeReject: false
-            });
-            nodeSelectGroup.outbounds = this.withChainGroups(rebuilt);
-        }
-
         this.countryGroupNames = countryGroupNames;
-        this.manualGroupName = manualGroupName;
     }
 
     /**
@@ -625,6 +513,7 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
                 default_mode: clashMode
             };
         }
+        this.config.outbounds = this.orderGroups(this.config.outbounds, outbound => outbound.tag);
         return this.config;
     }
 }

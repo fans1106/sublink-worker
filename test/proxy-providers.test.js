@@ -75,8 +75,8 @@ describe('Auto Proxy Providers Detection', () => {
             expect(config['proxy-providers'][providerName].type).toBe('http');
             expect(config['proxy-providers'][providerName].path).toBe(`./proxy_providers/${providerName}.yaml`);
 
-            // proxy-groups should have 'use' field
-            const nodeSelect = config['proxy-groups'].find(g => g.name === '🚀 节点选择');
+            // The all-node selector should have 'use' field
+            const nodeSelect = config['proxy-groups'].find(g => g.name === '📋 全部节点');
             expect(nodeSelect.use).toContain(providerName);
         });
 
@@ -138,8 +138,8 @@ describe('Auto Proxy Providers Detection', () => {
             expect(provider.type).toBe('http');
             expect(provider.path).toBe(`./providers/${provider.tag}.json`);
 
-            // outbounds should have 'providers' field
-            const nodeSelect = config.outbounds.find(o => o.tag === '🚀 节点选择');
+            // The all-node selector should have 'providers' field
+            const nodeSelect = config.outbounds.find(o => o.tag === '📋 全部节点');
             expect(nodeSelect.providers).toContain(provider.tag);
         });
 
@@ -234,7 +234,7 @@ describe('Auto Proxy Providers Detection', () => {
             expect(new Set(providerNames).size).toBe(2);
             expect(providerNames.every(name => name.startsWith('_auto_provider_'))).toBe(true);
 
-            const nodeSelect = config['proxy-groups'].find(g => g.name === '🚀 节点选择');
+            const nodeSelect = config['proxy-groups'].find(g => g.name === '📋 全部节点');
             expect(nodeSelect.use).toEqual(expect.arrayContaining(providerNames));
         });
 
@@ -371,7 +371,7 @@ describe('Auto Proxy Providers Detection', () => {
                 .find(name => name.startsWith('_auto_provider_'));
             expect(config['proxy-providers'][autoProviderName]?.url).toBe('https://auto.example.com/clash-sub');
 
-            const nodeSelect = config['proxy-groups'].find(g => g.name === '🚀 节点选择');
+            const nodeSelect = config['proxy-groups'].find(g => g.name === '📋 全部节点');
             expect(nodeSelect.use).toContain('provider1');
             expect(nodeSelect.use).toContain(autoProviderName);
         });
@@ -411,7 +411,7 @@ describe('Auto Proxy Providers Detection', () => {
                 .find(provider => provider.tag.startsWith('_auto_provider_'));
             expect(autoProvider.download_url).toBe('https://auto.example.com/singbox-sub');
 
-            const nodeSelect = config.outbounds.find(o => o.tag === '🚀 节点选择');
+            const nodeSelect = config.outbounds.find(o => o.tag === '📋 全部节点');
             expect(nodeSelect.providers).toContain('user-provider');
             expect(nodeSelect.providers).toContain(autoProvider.tag);
         });

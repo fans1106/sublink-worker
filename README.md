@@ -113,10 +113,28 @@ Clash, Sing-Box and Surge automatically create a selector for each full remote
 subscription URL. Groups are named `📥 airport.example`; different URLs on the
 same host get a numeric suffix. Repeated URLs share a group. Pasted proxy URIs
 are collected in `📥 Manual Nodes`, and pasted full configs in `📥 Imported Config`
-(labels follow the selected language). Groups are available in the node selector
-and rule selectors alongside optional country groups. Provider subscriptions
-retain their remote updates, with each source group referencing only its own
+(labels follow the selected language). The Node Select group switches between
+Ordinary Proxy, Chain Proxy (when enabled), DIRECT and REJECT (where supported).
+Ordinary Proxy contains Ordinary Auto Select, All Nodes, source groups and optional
+country groups. Business and custom rule selectors offer Node Select, Ordinary
+Proxy, Chain Proxy, source groups and direct/reject choices; raw nodes and country
+groups are reached through Ordinary Proxy instead of repeated in every rule.
+Provider subscriptions retain their remote updates through All Nodes, Ordinary
+Auto Select and their source groups. Each source group references only its own
 provider. Xray URI lists do not support groups.
+
+With chain proxy enabled, Node Select defaults to Chain Proxy. Choose a landing
+there, then choose Auto Entry or Manual Entry for that landing. Auto Entry measures
+each complete entry-to-landing path and keeps the landing fixed. Manual Entry uses
+the shared Entry Selection group, which contains only non-OUT nodes. Original OUT
+nodes remain available as single-hop proxies through Ordinary Proxy and source
+groups. Ordinary Auto Select always tests all original nodes, including OUT nodes.
+
+Disabling auto selection removes generated auto-test groups and full-path probe
+copies; country groups become manual selectors. Full-path testing otherwise needs
+one probe node per entry/landing pair. These nodes appear only in the corresponding
+Auto Entry group's candidates, although some clients also display all configured
+nodes. Group names have changed; saved client selections may need to be reselected.
 
 ## 🤝 Contributing
 

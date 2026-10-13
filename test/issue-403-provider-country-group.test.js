@@ -125,12 +125,12 @@ describe('issue #403: country groups in proxy-provider mode', () => {
         expect(hkGroup.filter).toBeUndefined();
     });
 
-    it('references the new country groups from the Node Select group', async () => {
+    it('references the new country groups from the Ordinary Proxy group', async () => {
         mockClashSubscription();
         const builder = new ClashConfigBuilder(SUB_URL, [], [], null, 'zh-CN', 'test-agent', true);
         const config = yaml.load(await builder.build());
 
-        const nodeSelect = findGroup(config, '🚀 节点选择');
+        const nodeSelect = findGroup(config, '🌐 普通代理');
         expect(nodeSelect).toBeDefined();
         expect(nodeSelect.proxies).toContain('🇭🇰 Hong Kong');
         expect(nodeSelect.proxies).toContain('🇯🇵 Japan');

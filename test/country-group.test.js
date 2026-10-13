@@ -55,7 +55,9 @@ vmess://ewogICJ2IjogIjIiLAogICJwcyI6ICJ0dzEubm9kZS5jb20iLAogICJhZGQiOiAidHcxLm5v
         const nodeSelectGroup = (built['proxy-groups'] || []).find(g => g && g.name === nodeSelectLabel);
         expect(nodeSelectGroup).toBeDefined();
 
-        const expectedProxies = ['DIRECT', 'REJECT', autoName, manualName, '📥 手动节点', '🇭🇰 Hong Kong', '🇹🇼 Taiwan', '🇺🇸 United States'];
+        const expectedProxies = ['🌐 普通代理', 'DIRECT', 'REJECT'];
+        const ordinary = built['proxy-groups'].find(g => g.name === '🌐 普通代理');
+        expect(ordinary.proxies).toEqual([autoName, manualName, '📥 手动节点', '🇭🇰 Hong Kong', '🇹🇼 Taiwan', '🇺🇸 United States']);
         const actualProxies = nodeSelectGroup.proxies || [];
         expect(actualProxies.sort()).toEqual(expectedProxies.sort());
 
@@ -63,7 +65,7 @@ vmess://ewogICJ2IjogIjIiLAogICJwcyI6ICJ0dzEubm9kZS5jb20iLAogICJhZGQiOiAidHcxLm5v
         const youtubeLabel = t('outboundNames.Youtube');
         const youtubeGroup = (built['proxy-groups'] || []).find(g => g && g.name === youtubeLabel);
         if (youtubeGroup) {
-            const expectedMembers = [nodeSelectLabel, autoName, manualName, '🇭🇰 Hong Kong', '🇹🇼 Taiwan', '🇺🇸 United States'];
+            const expectedMembers = [nodeSelectLabel, '🌐 普通代理', '📥 手动节点'];
             const actualMembers = youtubeGroup.proxies || [];
             const missing = expectedMembers.filter(name => !actualMembers.includes(name));
             expect(missing).toEqual([]);

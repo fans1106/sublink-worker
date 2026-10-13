@@ -19,7 +19,7 @@ describe('Issue #256 - Custom rules should not bypass selector chain', () => {
 
     // Expected translated names for zh-CN locale
     const NODE_SELECT = '🚀 节点选择';
-    const AUTO_SELECT = '⚡ 自动选择';
+    const ORDINARY_PROXY = '🌐 普通代理';
 
     describe('SingboxConfigBuilder', () => {
         it('should not include country groups in custom rule outbounds when groupByCountry is enabled', async () => {
@@ -47,11 +47,11 @@ describe('Issue #256 - Custom rules should not bypass selector chain', () => {
             expect(customRule1).toBeDefined();
             expect(customRule2).toBeDefined();
 
-            // Custom rules should contain Node Select, Auto Select, and DIRECT.
+            // Custom rules should contain Node Select, Ordinary Proxy, and DIRECT.
             // REJECT is a route action in sing-box 1.11+ instead of a special outbound.
             // But should NOT contain country groups like "🇺🇸 United States"
             expect(customRule1.outbounds).toContain(NODE_SELECT);
-            expect(customRule1.outbounds).toContain(AUTO_SELECT);
+            expect(customRule1.outbounds).toContain(ORDINARY_PROXY);
             expect(customRule1.outbounds).toContain('DIRECT');
             expect(customRule1.outbounds).not.toContain('REJECT');
 
@@ -69,7 +69,7 @@ describe('Issue #256 - Custom rules should not bypass selector chain', () => {
             expect(hasCountryGroup2).toBe(false);
         });
 
-        it('should still include country groups in Node Select when groupByCountry is enabled', async () => {
+        it('should still include country groups in Ordinary Proxy when groupByCountry is enabled', async () => {
             const builder = new SingboxConfigBuilder(
                 inputString,
                 'minimal',
@@ -87,11 +87,11 @@ describe('Issue #256 - Custom rules should not bypass selector chain', () => {
 
             await builder.build();
 
-            // Node Select should contain country groups
-            const nodeSelect = builder.config.outbounds.find(o => o?.tag === NODE_SELECT);
+            // Ordinary Proxy should contain country groups
+            const nodeSelect = builder.config.outbounds.find(o => o?.tag === ORDINARY_PROXY);
             expect(nodeSelect).toBeDefined();
 
-            // Node Select should contain country groups as options
+            // Ordinary Proxy should contain country groups as options
             const hasCountryGroup = nodeSelect.outbounds.some(tag =>
                 tag.includes('🇺🇸') || tag.includes('🇬🇧') || tag.includes('United States') || tag.includes('United Kingdom')
             );
@@ -124,9 +124,9 @@ describe('Issue #256 - Custom rules should not bypass selector chain', () => {
             expect(customRule1).toBeDefined();
             expect(customRule2).toBeDefined();
 
-            // Custom rules should contain Node Select, Auto Select, DIRECT, REJECT
+            // Custom rules should contain Node Select, Ordinary Proxy, DIRECT, REJECT
             expect(customRule1.proxies).toContain(NODE_SELECT);
-            expect(customRule1.proxies).toContain(AUTO_SELECT);
+            expect(customRule1.proxies).toContain(ORDINARY_PROXY);
             expect(customRule1.proxies).toContain('DIRECT');
             expect(customRule1.proxies).toContain('REJECT');
 
@@ -137,7 +137,7 @@ describe('Issue #256 - Custom rules should not bypass selector chain', () => {
             expect(hasCountryGroup).toBe(false);
         });
 
-        it('should still include country groups in Node Select when groupByCountry is enabled', async () => {
+        it('should still include country groups in Ordinary Proxy when groupByCountry is enabled', async () => {
             const builder = new ClashConfigBuilder(
                 inputString,
                 'minimal',
@@ -154,11 +154,11 @@ describe('Issue #256 - Custom rules should not bypass selector chain', () => {
 
             await builder.build();
 
-            // Node Select should contain country groups
-            const nodeSelect = builder.config['proxy-groups'].find(g => g?.name === NODE_SELECT);
+            // Ordinary Proxy should contain country groups
+            const nodeSelect = builder.config['proxy-groups'].find(g => g?.name === ORDINARY_PROXY);
             expect(nodeSelect).toBeDefined();
 
-            // Node Select should contain country groups as options
+            // Ordinary Proxy should contain country groups as options
             const hasCountryGroup = nodeSelect.proxies.some(tag =>
                 tag.includes('🇺🇸') || tag.includes('🇬🇧') || tag.includes('United States') || tag.includes('United Kingdom')
             );

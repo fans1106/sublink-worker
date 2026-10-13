@@ -15,12 +15,14 @@ describe('Issue #366 - avoid empty Auto Select groups', () => {
         await builder.build();
 
         const outbounds = builder.config.outbounds || [];
-        const autoSelect = outbounds.find(outbound => outbound?.tag === '⚡ 自动选择');
+        const autoSelect = outbounds.find(outbound => outbound?.tag === '⚡ 普通自动选择');
         const nodeSelect = outbounds.find(outbound => outbound?.tag === '🚀 节点选择');
 
         expect(autoSelect).toBeUndefined();
         expect(nodeSelect).toBeDefined();
-        expect(nodeSelect.outbounds).not.toContain('⚡ 自动选择');
-        expect(nodeSelect.outbounds).toEqual(['DIRECT']);
+        expect(nodeSelect.outbounds).not.toContain('⚡ 普通自动选择');
+        expect(nodeSelect.outbounds).toEqual(['🌐 普通代理', 'DIRECT']);
+        expect(outbounds.find(o => o.tag === '🌐 普通代理').outbounds).toEqual(['DIRECT']);
+        expect(outbounds.some(o => o.type === 'urltest')).toBe(false);
     });
 });

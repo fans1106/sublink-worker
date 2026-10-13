@@ -41,8 +41,11 @@ describe('groups by import source', () => {
             expect(findSource(builder, 'airport.example 2').nodes).toEqual(['JP-B']);
             expect(findSource(builder, '手动节点').nodes).toEqual(['Manual']);
             expect(groups(builder).filter(group => group.name.startsWith('📥 '))).toHaveLength(3);
+            const ordinary = groups(builder).find(group => group.name === builder.t('ordinaryProxy'));
+            expect(ordinary.nodes).toEqual(expect.arrayContaining(builder.sourceGroupNames));
             const root = groups(builder).find(group => group.name === builder.t('outboundNames.Node Select'));
-            expect(root.nodes).toEqual(expect.arrayContaining(builder.sourceGroupNames));
+            expect(root.nodes).toContain(ordinary.name);
+            expect(root.nodes.some(name => name.startsWith('📥 '))).toBe(false);
             expect(JSON.stringify(builder.config)).not.toContain('token=first');
         });
 
@@ -81,7 +84,7 @@ describe('groups by import source', () => {
         });
     });
 
-    it.each([['Clash', ClashConfigBuilder], ['Sing-Box', SingboxConfigBuilder]])('isolates each remote provider in its %s source group', async (_name, Builder) => {
+    it.each([['Clash', ClashConfigBuilder, true], ['Clash', ClashConfigBuilder, false], ['Sing-Box', SingboxConfigBuilder, true], ['Sing-Box', SingboxConfigBuilder, false]])('isolates each remote provider in its %s source group with auto=%s', async (_name, Builder, auto) => {
         const first = 'https://a.example/sub';
         const second = 'https://b.example/sub';
         vi.stubGlobal('fetch', vi.fn(async url => new Response(Builder === ClashConfigBuilder
@@ -90,7 +93,8 @@ describe('groups by import source', () => {
                 { type: 'shadowsocks', tag: 'Node', server: new URL(url).hostname, server_port: 443, method: 'aes-128-gcm', password: 'test' },
                 { type: 'selector', tag: 'Upstream Group', outbounds: ['Node'] }
             ] }))));
-        const builder = new Builder(`${first}\n${second}\n${first}`, [], [], null, 'zh-CN', 'test-agent');
+        const args = [`${first}\n${second}\n${first}`, [], [], null, 'zh-CN', 'test-agent', false, false, null, null];
+        const builder = Builder === SingboxConfigBuilder ? new Builder(...args, '1.12', auto) : new Builder(...args, auto);
         await builder.build();
         const a = findSource(builder, 'a.example');
         const b = findSource(builder, 'b.example');
@@ -100,6 +104,15 @@ describe('groups by import source', () => {
         expect(a.nodes).toHaveLength(0);
         expect(groups(builder).filter(group => group.name.startsWith('📥 '))).toHaveLength(2);
         expect(groups(builder).some(group => group.name === 'Upstream Group')).toBe(false);
+        const root = groups(builder).find(g => g.name === '🚀 节点选择');
+        expect(root.providers).toEqual([]);
+        expect(root.nodes).toContain('🌐 普通代理');
+        const allNodes = groups(builder).find(g => g.name === '📋 全部节点');
+        expect(allNodes.providers).toEqual(expect.arrayContaining([...a.providers, ...b.providers]));
+        const fallback = groups(builder).find(g => g.name === '🐟 漏网之鱼');
+        expect(fallback.providers).toEqual([]);
+        expect(fallback.nodes).toEqual(expect.arrayContaining([a.name, b.name]));
+        if (!auto) expect(JSON.stringify(builder.config)).not.toMatch(/"type":"url-?test"/);
     });
 
     it.each([
@@ -120,8 +133,8 @@ describe('groups by import source', () => {
         const chain = parseChainConfig({ version: 2, exit: { line: 1 } }, input);
         const builder = new ClashConfigBuilder(input, [], [], null, 'zh-CN', 'test-agent', false, false, null, null, true, chain);
         await builder.build();
-        const entry = groups(builder).find(group => group.name === '入口节点');
-        expect(entry.nodes).toEqual(['Entry', builder.t('outboundNames.Auto Select')]);
+        const entry = groups(builder).find(group => group.name === '🛫 入口选择');
+        expect(entry.nodes).toEqual(['Entry']);
         expect(findSource(builder, 'exit.example').nodes).toEqual(['Exit']);
     });
 });

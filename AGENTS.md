@@ -52,9 +52,11 @@ Sublink Worker 是多平台代理订阅转换器：将各类协议（ShadowSocks
 
 **新增协议**：在 `src/parsers/protocols/` 加 parser，并在 `ProxyParser.js` 的 `protocolParsers` map 注册。
 
-**Builder 模式**：`SingboxConfigBuilder` / `ClashConfigBuilder` / `SurgeConfigBuilder` 都继承 `BaseConfigBuilder`。子类必须实现：`getProxies()`、`getProxyName(proxy)`、`convertProxy(proxy)`、`addProxyToConfig(proxy)`、`addAutoSelectGroup(list)`、`addNodeSelectGroup(list)`、`addOutboundGroups(outbounds, list)`、`addCustomRuleGroups(list)`、`addFallBackGroup(list)`、`addCountryGroups()`、`formatConfig()`。
+**Builder 模式**：`SingboxConfigBuilder` / `ClashConfigBuilder` / `SurgeConfigBuilder` 都继承 `BaseConfigBuilder`。子类必须实现：`getProxies()`、`getProxyName(proxy)`、`convertProxy(proxy)`、`addProxyToConfig(proxy)`、`addSelectorGroup(name, members, type, providers)`、`addOutboundGroups(outbounds)`、`addCustomRuleGroups()`、`addFallBackGroup()`、`addCountryGroups()`、`formatConfig()`。总选择、普通选择、来源分组与链式分组的成员逻辑由基类和 `helpers/groupBuilder.js` 统一计算。
 
 **订阅导入**：订阅与粘贴的完整配置只贡献节点，原分组、DNS、规则等不合并到 base config；内置模板或用户选择的 base config 提供这些设置。Clash / Sing-Box / Surge 按完整订阅 URL 建立来源选择组，同域名不同 URL 用数字后缀区分；手动 URI 和粘贴配置分别归组。来源组与国家分组并存，provider 来源组只引用自身 provider。
+
+**分组层级**：节点选择 → 普通代理 / 链式代理。普通代理包含普通自动选择、全部节点、来源与可选国家组；业务/自定义规则组保留来源候选，不展开原始节点或国家组。开启链式代理时总选择默认走链式；每个落地提供自动入口（完整链路测速、固定落地）或指定入口（共享入口选择、仅 IN 节点）。关闭自动选择时不生成测速组或链式测速副本，国家组改为手动选择。原始 OUT 节点可在普通代理中单跳使用。
 
 国家分组逻辑在 `src/utils.js#groupProxiesByCountry`。
 

@@ -76,7 +76,7 @@ describe('Issues #370/#373/#277 - remote subscription decode and empty Clash out
         expect(providerName).toMatch(/^_auto_provider_[a-z0-9]+$/);
         expect(built['proxy-providers'][providerName]?.url).toBe('https://example.com/plain-clash.yaml');
 
-        const autoSelect = built['proxy-groups'].find(group => group.name === '⚡ 自动选择');
+        const autoSelect = built['proxy-groups'].find(group => group.name === '⚡ 普通自动选择');
         expect(autoSelect.use).toEqual([providerName]);
         expectNoEmptyUrlTestGroup(built);
     });
@@ -92,11 +92,12 @@ describe('Issues #370/#373/#277 - remote subscription decode and empty Clash out
         );
         const built = yaml.load(await builder.build());
 
-        const autoSelect = built['proxy-groups'].find(group => group.name === '⚡ 自动选择');
+        const autoSelect = built['proxy-groups'].find(group => group.name === '⚡ 普通自动选择');
         const nodeSelect = built['proxy-groups'].find(group => group.name === '🚀 节点选择');
 
         expect(autoSelect).toBeUndefined();
-        expect(nodeSelect.proxies).toEqual(['DIRECT', 'REJECT']);
+        expect(nodeSelect.proxies).toEqual(['🌐 普通代理', 'DIRECT', 'REJECT']);
+        expect(built['proxy-groups'].find(g => g.name === '🌐 普通代理').proxies).toEqual(['DIRECT']);
         expectNoEmptyUrlTestGroup(built);
     });
 });
